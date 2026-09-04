@@ -7,11 +7,11 @@ import Tooltip from '@mui/material/Tooltip';
 export default class PostButton extends Component {
   constructor(props) {
       super(props)
-      this.openBasketCollection = this.openBasketCollection.bind(this)
+      this.openWorkspaceCollection = this.openWorkspaceCollection.bind(this)
   }
 
-  openBasketCollection() {
-    let c = this.props.buildBasketCollection(this.props.basket)
+  openWorkspaceCollection() {
+    let c = this.props.buildWorkspaceCollection(this.props.workspaceItems, this.props.workspace)
     let form = document.createElement("form")
     form.setAttribute("method", "post")
     form.setAttribute("action", this.props.link.url)
@@ -28,8 +28,8 @@ export default class PostButton extends Component {
   render() {
     let hashedurl=v5(this.props.link.url, '1b671a63-40d3-4913-99b3-da01ff1f3343')
     return(
-      <Tooltip title={this.props.link.tooltip}>
-        <button onClick={() => this.openBasketCollection()} className="ButtonAddToBasket" key={`postbutton-button-${hashedurl}`}>
+      <Tooltip title={this.props.link.tooltip} describeChild>
+        <button onClick={() => this.openWorkspaceCollection()} className="ButtonAddToWorkspace" key={`postbutton-button-${hashedurl}`}>
           {this.props.link.label[this.props.lang]}
         </button>
       </Tooltip>

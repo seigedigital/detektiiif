@@ -42,15 +42,15 @@ export default class DisplayManifest extends Component {
         let buttons = []
         if(this.props.theme.generalButtons.copyURL) {
           buttons.push(
-            <Tooltip title="Copy URL to clipboard" key={`tt-copy-${hashedurl}`}>
+            <Tooltip title="Copy URL to clipboard" describeChild key={`tt-copy-${hashedurl}`}>
               <button onClick={() => this.props.copyUrl(this.props.url)} className="ButtonCopyURL" key={`copybutton-${hashedurl}`} >Copy URL</button>
             </Tooltip>
           )
         }
-        if(this.props.theme.generalButtons.addToBasket) {
+        if(this.props.theme.generalButtons.addToWorkspace) {
           buttons.push(
-            <Tooltip title={"Add manifest to "+this.props.theme.basketName} key={`tt-add-${hashedurl}`}>
-              <button onClick={() => this.props.addToBasket(this.props.id)} className="ButtonAddToBasket" key={`addbutton-${hashedurl}`} >Add to {this.props.theme.basketName}</button>
+            <Tooltip title={"Add manifest to workspace"} describeChild key={`tt-add-${hashedurl}`}>
+              <button onClick={() => this.props.addToWorkspace(this.props.id)} className="ButtonAddToWorkspace" key={`addbutton-${hashedurl}`} >Add to Workspace</button>
             </Tooltip>
           )
         }

@@ -1,0 +1,9 @@
+{
+  "@context": "http://iiif.io/api/presentation/4/context.json",
+  "id": "{{origin}}/iiif/collection-v4/collection.json",
+  "type": "Collection",
+  "label": {
+    "none": ["Fixture Presentation 4 Collection"]
+  },
+  "items": []
+}

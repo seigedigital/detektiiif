@@ -1,0 +1,17 @@
+{
+  "background": {
+    "scripts": ["background.bundle.js"]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "detektiiif3@seige.digital",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
+    }
+  }
+}

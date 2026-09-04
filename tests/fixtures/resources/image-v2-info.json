@@ -1,0 +1,8 @@
+{
+  "@context": "http://iiif.io/api/image/2/context.json",
+  "@id": "{{origin}}/iiif/image-v2",
+  "@type": "iiif:Image",
+  "width": 100,
+  "height": 100,
+  "profile": ["http://iiif.io/api/image/2/level1.json"]
+}

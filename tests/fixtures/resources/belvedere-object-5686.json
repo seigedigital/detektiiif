@@ -1,0 +1,25 @@
+{
+  "object": [
+    {
+      "sourceId": {
+        "label": "Source ID",
+        "value": "5686"
+      },
+      "primaryMedia": {
+        "label": "PrimaryMedia",
+        "value": "{{origin}}/internal/media/dispatcher/18966/full"
+      },
+      "media": {
+        "label": "Media",
+        "value": ["{{origin}}/internal/media/dispatcher/18966/full"]
+      },
+      "title": {
+        "label": "Title",
+        "value": "Under the Linden Trees (Evening Landscape)"
+      },
+      "iiifManifest": {
+        "value": "{{origin}}/apis/iiif/presentation/v2/1-objects-5686/manifest"
+      }
+    }
+  ]
+}

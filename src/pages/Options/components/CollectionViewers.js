@@ -33,6 +33,7 @@ import Button from '@mui/material/Button';
 
 import Theme from '../../../themes/active/Theme.js'
 import Defaults from '../../../themes/active/Defaults.js'
+import { normalizeWorkspaceLinks } from '../../../shared/viewerLinks'
 
 import { v5 } from 'uuid'
 import { v4 } from 'uuid'
@@ -60,8 +61,8 @@ class CollectionViewers extends Component {
       inputMode: '',
       inputVariable: '',
       inputCollections: true,
-      inputBasket: true,
-      postBasketCollectionTo: Object.assign({},this.theme.postBasketCollectionTo)
+      inputWorkspaces: true,
+      postWorkspaceCollectionTo: normalizeWorkspaceLinks(this.theme.postWorkspaceCollectionTo || this.theme.postBasketCollectionTo)
     }
 
   }
@@ -73,18 +74,19 @@ class CollectionViewers extends Component {
         mode: this.state.inputMode,
         variable: this.state.inputVariable,
         label: { en: this.state.inputLabel},
-        tabBasket: this.state.inputBasket,
+        tabWorkspaces: this.state.inputWorkspaces,
         tabCollections: this.state.inputCollections
     }
-    let data = Object.assign({},this.state.postBasketCollectionTo,entry)
-    this.setState({postBasketCollectionTo:data}, this.upd)
+    let data = Object.assign({},this.state.postWorkspaceCollectionTo,entry)
+    this.setState({postWorkspaceCollectionTo:data}, this.upd)
     this.setState({dialogOpen:false})
   }
 
   getOpenCollectionLinks() {
-    chrome.storage.local.get('postBasketCollectionTo', (data) => {
-      if('postBasketCollectionTo' in data) {
-        this.setState({postBasketCollectionTo:data.postBasketCollectionTo})
+    chrome.storage.local.get(['postWorkspaceCollectionTo', 'postBasketCollectionTo'], (data) => {
+      const storedLinks = data.postWorkspaceCollectionTo || data.postBasketCollectionTo
+      if(storedLinks) {
+        this.setState({postWorkspaceCollectionTo:normalizeWorkspaceLinks(storedLinks)})
       }
     })
   }
@@ -94,29 +96,29 @@ class CollectionViewers extends Component {
   }
 
   setOpenCollectionValue(key,value,field) {
-    let data = Object.assign({},this.state.postBasketCollectionTo)
+    let data = Object.assign({},this.state.postWorkspaceCollectionTo)
     data[key][field] = value
-    this.setState({postBasketCollectionTo:data}, this.upd)
+    this.setState({postWorkspaceCollectionTo:data}, this.upd)
   }
 
   setOpenCollectionLinkLang(key,value,lang) {
-    let data = Object.assign({},this.state.postBasketCollectionTo)
+    let data = Object.assign({},this.state.postWorkspaceCollectionTo)
     data[key].label[lang] = value
-    this.setState({postBasketCollectionTo:data}, this.upd)
+    this.setState({postWorkspaceCollectionTo:data}, this.upd)
   }
 
   setOpenCollectionLinkRemove(key) {
-    let data = Object.assign({},this.state.postBasketCollectionTo)
+    let data = Object.assign({},this.state.postWorkspaceCollectionTo)
     delete data[key]
-    this.setState({postBasketCollectionTo:data}, this.upd)
+    this.setState({postWorkspaceCollectionTo:data}, this.upd)
   }
 
   setOpenCollectionLinkRestoreDefaults() {
-    this.setState({postBasketCollectionTo:this.theme.postBasketCollectionTo}, this.upd)
+    this.setState({postWorkspaceCollectionTo:normalizeWorkspaceLinks(this.theme.postWorkspaceCollectionTo || this.theme.postBasketCollectionTo)}, this.upd)
   }
 
   upd() {
-    chrome.storage.local.set({postBasketCollectionTo:this.state.postBasketCollectionTo})
+    chrome.storage.local.set({postWorkspaceCollectionTo:normalizeWorkspaceLinks(this.state.postWorkspaceCollectionTo)})
   }
 
   render() {
@@ -128,8 +130,8 @@ class CollectionViewers extends Component {
     console.log({render_ManViews_with_state:this.state})
 
     let collectionViewers = []
-    for(let key of Object.keys(this.state.postBasketCollectionTo).sort() ) {
-      let link = this.state.postBasketCollectionTo[key]
+    for(let key of Object.keys(this.state.postWorkspaceCollectionTo).sort() ) {
+      let link = this.state.postWorkspaceCollectionTo[key]
       let cardsx = {margin:'16px 0'}
       if('options' in link && 'hidden' in link.options && link.options.hidden===true) {
         cardsx = {margin:'16px 0',display:'none'}
@@ -169,10 +171,10 @@ class CollectionViewers extends Component {
                   key={`checkbox-collections-${hashkey}`}
                 />} label="Collections"
               />
-              <FormControlLabel control={<Checkbox checked={link.tabBasket}
-                  onChange={ (e) => this.setOpenCollectionValue(key,e.target.checked,'tabBasket') }
-                  key={`checkbox-basket-${hashkey}`}
-                />} label="Basket"
+              <FormControlLabel control={<Checkbox checked={link.tabWorkspaces}
+                  onChange={ (e) => this.setOpenCollectionValue(key,e.target.checked,'tabWorkspaces') }
+                  key={`checkbox-workspaces-${hashkey}`}
+                />} label="Workspaces"
               />
             </FormGroup>
           </CardContent>
@@ -262,9 +264,9 @@ class CollectionViewers extends Component {
               />} label="Collections"
             />
             <FormControlLabel control={<Checkbox defaultChecked
-                onChange={ (e) => this.setState({inputBasket:e.target.checked}) }
-                key={`add-checkbox-basket`}
-              />} label="Basket"
+                onChange={ (e) => this.setState({inputWorkspaces:e.target.checked}) }
+                key={`add-checkbox-workspaces`}
+              />} label="Workspaces"
             />
         </FormGroup>
         </DialogContent>

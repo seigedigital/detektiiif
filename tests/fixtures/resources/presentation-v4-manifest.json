@@ -1,0 +1,29 @@
+{
+  "@context": [
+    "http://example.org/local-extension/context.json",
+    "http://iiif.io/api/presentation/4/context.json"
+  ],
+  "id": "{{origin}}/iiif/presentation-v4/manifest.json",
+  "type": "Manifest",
+  "label": {
+    "de": ["Fixture Presentation 4 Manifest"]
+  },
+  "thumbnail": [
+    {
+      "id": "{{origin}}/thumbs/presentation-v4.jpg",
+      "type": "Image",
+      "format": "image/jpeg"
+    }
+  ],
+  "items": [
+    {
+      "id": "{{origin}}/iiif/presentation-v4/canvas/1",
+      "type": "Canvas",
+      "label": {
+        "none": ["Canvas 1"]
+      },
+      "width": 100,
+      "height": 100
+    }
+  ]
+}

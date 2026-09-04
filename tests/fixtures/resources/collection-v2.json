@@ -1,0 +1,7 @@
+{
+  "@context": "http://iiif.io/api/presentation/2/context.json",
+  "@id": "{{origin}}/iiif/collection-v2/collection.json",
+  "@type": "sc:Collection",
+  "label": "Fixture Presentation 2 Collection",
+  "manifests": []
+}

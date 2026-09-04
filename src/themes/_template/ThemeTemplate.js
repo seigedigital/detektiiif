@@ -1,6 +1,6 @@
 /*
 
-  This file defines the theming options and default values of DetektIIIF2
+  This file defines the theming options and default values of detektIIIF
 
 */
 import React from 'react'
@@ -8,7 +8,7 @@ import React from 'react'
 class ThemeTemplate {
 
   // Title
-  title = "DetektIIIF Version 3"
+  title = "detektIIIF"
   about = <span>About DetektIIIF.</span>
 
   // Options
@@ -30,12 +30,12 @@ class ThemeTemplate {
 
   optionsPunchline = <span>Options</span>
 
-  basketName = "Basket"
+  workspaceName = "Workspace"
 
   // Images
-  basketImage = null
-  removeAllBasketImage = null
-  closeBasketImage = null
+  workspaceImage = null
+  removeAllWorkspaceImage = null
+  closeWorkspaceImage = null
   greenDotImage = null
   infoImage = null
   logoImage = null
@@ -52,8 +52,8 @@ class ThemeTemplate {
 
   generalButtons = {
     copyURL: true,
-    addToBasket: true,
-    removeFromBasket: true,
+    addToWorkspace: true,
+    removeFromWorkspace: true,
     downloadFullImage: true // only for images
   }
 
@@ -68,7 +68,7 @@ class ThemeTemplate {
   openManifestLinks = {
     uv: {
       url: 'https://uv-v4.netlify.app/#?manifest=%%%URI%%%',
-      tabBasket: false,
+      tabWorkspaces: false,
       tabManifests: true,
       backgroundColor: "#5e724d",
       label: {
@@ -78,7 +78,7 @@ class ThemeTemplate {
     },
     tify: {
       url: 'https://demo.tify.rocks/demo.html?manifest=%%%URI%%%',
-      tabBasket: false,
+      tabWorkspaces: false,
       tabManifests: true,
       backgroundColor: "#5e724d",
       label: {
@@ -88,7 +88,7 @@ class ThemeTemplate {
     },
     manducus: {
       url: 'https://manducus.net/m3?manifest=%%%URI%%%',
-      tabBasket: false,
+      tabWorkspaces: false,
       tabManifests: true,
       backgroundColor: "#5e724d",
       label: {
@@ -98,22 +98,22 @@ class ThemeTemplate {
     }
   }
 
-  // Basket
+  // Workspaces
 
-  postBasketCollectionTo = {
+  postWorkspaceCollectionTo = {
     manducus: {
       url: 'https://manducus.net/m3/index.php',
       mode: 'x-www-form-urlencoded', // or json
       variable: 'collection', // for x-www-form-urlencoded only
-      tabBasket: true,
+      tabWorkspaces: true,
       tabCollections: true,
-      tooltip: "Open your collection in Mirador.",
+      tooltip: "Open your workspace collection in Mirador.",
       options: {
         hidden: false
       },
       label: {
-        en: "Open Collection in M3",
-        de: "Kollektion In M3 öffnen"
+        en: "Open Workspace in M3",
+        de: "Workspace in M3 öffnen"
       }
     }
 

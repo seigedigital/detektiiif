@@ -10,12 +10,12 @@ import SDLogo from './images/seige.digital-768x170.png'
 
 class Theme extends ThemeTemplate {
 
-  title = "detektIIIF3"
+  title = "detektIIIF 4.0"
 
   logoImageBig = LogoImageBig
 
   about = <div style={{overflow:'auto',marginBottom:'30px'}}>
-            <h2 style={{marginTop:'0px'}}>About detektIIIF3</h2>
+            <h2 style={{marginTop:'0px'}}>About detektIIIF 4.0</h2>
 
             <p style={{clear:'both',verticalAlign:'middle',padding:'0px 20px 0px 0px'}}><a href="https://detektiiif.net" target="_blank">https://detektiiif.net</a></p>
 
@@ -31,7 +31,7 @@ class Theme extends ThemeTemplate {
           openManifestLinks = {
             uv: {
               url: 'https://uv-v4.netlify.app/#?manifest=%%%URI%%%',
-              tabBasket: false,
+              tabWorkspaces: false,
               tabManifests: true,
               backgroundColor: "#5e724d",
               label: {
@@ -41,7 +41,7 @@ class Theme extends ThemeTemplate {
             },
             manducus: {
               url: 'https://manducus.net/m3?manifest=%%%URI%%%',
-              tabBasket: false,
+              tabWorkspaces: false,
               tabManifests: true,
               backgroundColor: "#5e724d",
               label: {

@@ -27,6 +27,7 @@ import Divider from '@mui/material/Divider';
 
 import Theme from '../../../themes/active/Theme.js'
 import Defaults from '../../../themes/active/Defaults.js'
+import { normalizeWorkspaceLinks } from '../../../shared/viewerLinks'
 
 import { v5, v4 } from 'uuid'
 
@@ -52,8 +53,8 @@ class ManifestViewers extends Component {
       inputLabel: '',
       inputURL: '',
       inputManifests: true,
-      inputBasket: true,
-      openManifestLinks: Object.assign({},this.theme.openManifestLinks)
+      inputWorkspaces: true,
+      openManifestLinks: normalizeWorkspaceLinks(this.theme.openManifestLinks)
     }
 
   }
@@ -63,7 +64,7 @@ class ManifestViewers extends Component {
     entry[v4()] = {
         url: this.state.inputURL,
         label: { en: this.state.inputLabel},
-        tabBasket: this.state.inputBasket,
+        tabWorkspaces: this.state.inputWorkspaces,
         tabManifests: this.state.inputManifests
     }
     let data = Object.assign({},this.state.openManifestLinks,entry)
@@ -74,7 +75,7 @@ class ManifestViewers extends Component {
   getOpenManifestLinks() {
     chrome.storage.local.get('openManifestLinks', (data) => {
       if('openManifestLinks' in data) {
-        this.setState({openManifestLinks:data.openManifestLinks})
+        this.setState({openManifestLinks:normalizeWorkspaceLinks(data.openManifestLinks)})
       }
     })
   }
@@ -108,11 +109,11 @@ class ManifestViewers extends Component {
   }
 
   setOpenManifestLinkRestoreDefaults() {
-    this.setState({openManifestLinks:this.theme.openManifestLinks}, this.upd)
+    this.setState({openManifestLinks:normalizeWorkspaceLinks(this.theme.openManifestLinks)}, this.upd)
   }
 
   upd() {
-    chrome.storage.local.set({openManifestLinks:this.state.openManifestLinks})
+    chrome.storage.local.set({openManifestLinks:normalizeWorkspaceLinks(this.state.openManifestLinks)})
   }
 
   render() {
@@ -146,10 +147,10 @@ class ManifestViewers extends Component {
                     key={`checkbox-manifests-${hashkey}`}
                   />} label="Manifests"
                 />
-                <FormControlLabel control={<Checkbox checked={link.tabBasket}
-                    onChange={ (e) => this.setOpenManifestCheckbox(key,e.target.checked,'tabBasket') }
-                    key={`checkbox-basket-${hashkey}`}
-                  />} label="Basket"
+                <FormControlLabel control={<Checkbox checked={link.tabWorkspaces}
+                    onChange={ (e) => this.setOpenManifestCheckbox(key,e.target.checked,'tabWorkspaces') }
+                    key={`checkbox-workspaces-${hashkey}`}
+                  />} label="Workspaces"
                 />
               </FormGroup>
           </CardContent>
@@ -215,9 +216,9 @@ class ManifestViewers extends Component {
               />} label="Manifests"
             />
             <FormControlLabel control={<Checkbox defaultChecked
-                onChange={ (e) => this.setState({inputBasket:e.target.checked}) }
-                key={`add-checkbox-basket`}
-              />} label="Basket"
+                onChange={ (e) => this.setState({inputWorkspaces:e.target.checked}) }
+                key={`add-checkbox-workspaces`}
+              />} label="Workspaces"
             />
         </FormGroup>
         </DialogContent>

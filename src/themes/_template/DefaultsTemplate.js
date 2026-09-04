@@ -2,11 +2,11 @@ class DefaultsTemplate {
 
   // Navigation
   tabs = true
-  showTabs = ['MANIFESTS','IMAGES','COLLECTIONS','BASKET']
+  showTabs = ['MANIFESTS','IMAGES','COLLECTIONS','WORKSPACES']
   singleView = 'MANIFESTS'
-  separateBasket = false
+  separateWorkspace = false
 
-  storeBasket = "local" // or sync but not now because we should make sure that sync works
+  storeWorkspaces = "sync"
 
   ignoreDomains = [
     "google.com", "googleusercontent.com", "gstatic.com", "google.de", "googletagservices.com",

@@ -1,18 +1,28 @@
 import Defaults from '../../themes/active/Defaults.js'
-import { v2GetManifestThumbnail, v3GetManifestThumbnail } from './tools/iiif'
+import {
+  analyzeIIIFResource,
+  buildIIIFItem,
+  getIIIFStorageKey
+} from './tools/iiif'
+import {
+  extractIIIFUrlsFromHTML,
+  extractIIIFUrlsFromJSON,
+  extractIIIFUrlsFromPageUrl,
+  isHttpUrl,
+  isJsonContentType,
+  shouldFetchBodyAfterHead
+} from './tools/discovery'
 import { v4 } from 'uuid'
 
 (function () {
 
-  var globalDefaults = new Defaults()
+  const globalDefaults = new Defaults()
 
-  var tabStorage = {}
-  var cache = {}
-  var cache_cors = {}
-  var ignoreDomains = []
-  var animSequence = ['◐', '◓', '◑', '◒']
-
-  var docStorage = {}
+  let tabStorage = {}
+  const cache = {}
+  const cache_cors = {}
+  let ignoreDomains = []
+  const animSequence = ['◐', '◓', '◑', '◒']
 
   const networkFilters = {
     urls: [
@@ -32,9 +42,17 @@ import { v4 } from 'uuid'
   function loadLocalTabStorage() {
     chrome.storage.local.get(['tabStorage'], (result) => {
       if ('tabStorage' in result) {
-        tabStorage = JSON.parse(result.tabStorage)
-        for (let tabId in tabStorage) {
-          tabStorage[tabId].badgeDisplay = ''
+        try {
+          const storedTabStorage = JSON.parse(result.tabStorage)
+          tabStorage = {}
+
+          for (let tabId in storedTabStorage) {
+            tabStorage[tabId] = normalizeTabStorageEntry(tabId, storedTabStorage[tabId])
+            tabStorage[tabId].badgeDisplay = ''
+          }
+        } catch (error) {
+          console.warn('Could not parse stored tabStorage.', error)
+          tabStorage = {}
         }
       }
     })
@@ -58,6 +76,29 @@ import { v4 } from 'uuid'
     })
   }
 
+  function normalizeTabStorageEntry(tabId, entry = {}) {
+    const template = getNewTabTemplate(tabId)
+    const iiif = entry.iiif || {}
+
+    return Object.assign({}, template, entry, {
+      fetch: Array.isArray(entry.fetch) ? entry.fetch : [],
+      iiif: {
+        manifests: iiif.manifests || {},
+        images: iiif.images || {},
+        collections: iiif.collections || {}
+      },
+      requests: entry.requests || {}
+    })
+  }
+
+  function ensureTabStorage(tabId) {
+    if (!(tabId in tabStorage)) {
+      tabStorage[tabId] = getNewTabTemplate(tabId)
+    }
+
+    return tabStorage[tabId]
+  }
+
   function initTabStorage(tabId) {
     tabStorage[tabId] = getNewTabTemplate(tabId)
     saveLocalTabStorage()
@@ -66,15 +107,21 @@ import { v4 } from 'uuid'
 
   function addToTabStorage(tabId, iiifkey, key, value) {
     console.log({ ADDING: { iiifkey: iiifkey, key: key, value: value } })
-    tabStorage[tabId]['iiif'][iiifkey][key] = value
+    const tabData = ensureTabStorage(tabId)
+
+    if (!(iiifkey in tabData.iiif)) {
+      console.warn('Unknown IIIF storage key: ' + iiifkey)
+      return
+    }
+
+    tabData.iiif[iiifkey][key] = value
     saveLocalTabStorage()
     updateIcon(tabId)
   }
 
   function updateInTabStorage(tabId, key, value) {
-    if (!(tabId in tabStorage)) {
-      tabStorage[tabId] = getNewTabTemplate(tabId)
-    }
+    const tabData = ensureTabStorage(tabId)
+
     switch (key) {
       case 'updaterequest':
         for (let tid in tabStorage) {
@@ -84,15 +131,16 @@ import { v4 } from 'uuid'
         }
         break
       case 'addfetch':
-        tabStorage[tabId]['fetch'].push(value)
+        tabData.fetch.push(value)
         break
       case 'remfetch':
-        tabStorage[tabId]['fetch'] = tabStorage[tabId]['fetch'].filter(function (item) {
+        tabData.fetch = tabData.fetch.filter(function (item) {
           return item !== value
         })
         break
       case 'addrequest':
-        tabStorage[tabId]['requests'][value.requestId] = Object.assign({}, value)
+        tabData.requests[value.requestId] = Object.assign({}, value)
+        break
       default:
         break
     }
@@ -100,10 +148,28 @@ import { v4 } from 'uuid'
     updateIcon(tabId)
   }
 
+  function queueFetch(url, tabId) {
+    if (filterURLs(url) || cache[url] === 'INPROGRESS') {
+      return
+    }
+
+    fetchHttp(url, tabId)
+  }
+
+  function markTabTruncated(tabId) {
+    ensureTabStorage(tabId).truncated = true
+    saveLocalTabStorage()
+  }
+
   //
   // ENTRY POINT into fetching cascade
   //
   function fetchHttp(url, tabId) {
+    if (!isHttpUrl(url)) {
+      console.log("URL denied, we're http(s) only: " + url)
+      return
+    }
+
     fetchWorkStart(url, tabId)    // let's go
     // we always try https too
     if (url.startsWith("http:")) {
@@ -119,43 +185,38 @@ import { v4 } from 'uuid'
       return
     }
     // unknown: let's check it out
+    cache[url] = "INPROGRESS"
     fetchWorkHeader(url, tabId)
   }
 
   function fetchWorkHeader(url, tabId) {
-    if (!url.startsWith('http')) {
+    if (!isHttpUrl(url)) {
       console.log("URL denied (HEAD), we're http(s) only.")
       return
     }
     console.log("HEAD " + url)
-    var tregex = /^application\/(ld\+)?json?.*/i
     // FIXME workaround to avoid problems chrome's cache vs dynamic cors headers, example: https://edl.beniculturali.it/beu/850013655
     // Upd: ran into troubles, switch back to force-cache, ignoring dynamic cors cases
     let fkey = v4()
     updateInTabStorage(tabId, 'addfetch', fkey)
     fetch(url, { method: 'HEAD', cache: 'force-cache', follow: 'follow', referrerPolicy: 'no-referrer' })
       .then((response) => {
-        if (response.status === 405) {
-          console.log(response)
-          console.log("HEAD method not allowed. GETting...")
-          fetchWorkBody(url, tabId)
-        }
         let c = response.headers.get("access-control-allow-origin")
-        // console.log("CORS: "+c+" for "+url)
-        if (c === "*") {
-          cache_cors[url] = true
-        } else {
-          cache_cors[url] = false
+        cache_cors[url] = c === "*"
+
+        if (shouldFetchBodyAfterHead(url, response.status)) {
+          console.log(response)
+          console.log("HEAD not usable. GETting...")
+          fetchWorkBody(url, tabId)
+          updateInTabStorage(tabId, 'remfetch', fkey)
+          return
         }
+
         let t = response.headers.get("content-type")
         let s = response.headers.get("content-length")
         console.log(t + " " + s + " " + url)
         console.log(response.status)
-        if ((t !== undefined && t.match(tregex))
-          || (url.startsWith('https://www.e-manuscripta.ch/') && response.status === 500) // e-manuscripta doesn't like HEAD requests
-          || (url.startsWith('https://emanus.rc.vls.io') && response.status === 500) // e-manuscripta doesn't like HEAD requests
-          || (url.startsWith('https://www.e-rara.ch/') && response.status === 500) // e-rara doesn't like HEAD requests
-        ) {
+        if (isJsonContentType(t)) {
           console.log("Accepted for GET Req: " + url)
           fetchWorkBody(url, tabId)
         } else {
@@ -176,20 +237,17 @@ import { v4 } from 'uuid'
   }
 
   function fetchWorkBody(url, tabId) {
-    if (!url.startsWith('http')) {
+    if (!isHttpUrl(url)) {
       console.log("URL denied (BODY), we're http(s) only.")
       return
     }
 
-    let cm = 'no-store'
-    if (cache_cors[url] === true) {
-      let cm = 'force-cache'
-    }
+    const cacheMode = cache_cors[url] === true ? 'force-cache' : 'no-store'
 
     let fkey = v4()
     updateInTabStorage(tabId, 'addfetch', fkey)
     // FIXME workaround to avoid problems chrome's cache vs dynamic cors headers, example: https://edl.beniculturali.it/beu/850013655
-    fetch(url, { method: 'GET', cache: 'no-store', referrerPolicy: 'no-referrer' })
+    fetch(url, { method: 'GET', cache: cacheMode, referrerPolicy: 'no-referrer' })
       .then(res => res.json())
       .then((data) => {
         console.log({ got: data })
@@ -206,7 +264,7 @@ import { v4 } from 'uuid'
   }
 
   function fetchHTML(url, tabId) {
-    if (!url.startsWith('http')) {
+    if (!isHttpUrl(url)) {
       console.log("URL denied (fetchHTML), we're http(s) only.")
       return
     }
@@ -237,8 +295,19 @@ import { v4 } from 'uuid'
       return
     }
 
-    let iiif = analyzeJSONBody(data, url)
+    let iiif = analyzeIIIFResource(data)
     if (!iiif) {
+      const institutionUrls = extractIIIFUrlsFromJSON(data, url)
+
+      if (institutionUrls.length > 0) {
+        console.log("Institution rules found IIIF candidates for " + url)
+        cache[url] = false
+        for (const institutionUrl of institutionUrls) {
+          queueFetch(institutionUrl, tabId)
+        }
+        return
+      }
+
       cache[url] = false
       console.log("NO for " + url)
       return
@@ -247,268 +316,26 @@ import { v4 } from 'uuid'
     
     console.log("OK for " + url)
 
-    let item = {}
-    if ('@id' in data) {
-      item.id = data['@id']
-    } else {
-      item.id = data['id']
-    }
-    item.url = url
-    item.cors = cache_cors[url]
-    item.error = 0
-    item.version = iiif.version
+    const item = buildIIIFItem(data, url, iiif, cache_cors[url])
+    const storageKey = getIIIFStorageKey(iiif)
 
-    if (iiif.api === "presentation" && iiif.type === "manifest") {
-      console.log(item.id + " is a manifest")
-      try {
-        if (typeof data.label === 'string' || data.label instanceof String) {
-          item.label = data.label
-        } else {
-          if ('en' in data.label) {
-            item.label = data.label['en'][0]
-          } else if (Array.isArray(data.label) && ('@value' in data.label[0])) {
-            item.label = data.label[0]['@value']
-          } else {
-            item.label = item.id
-          }
-        }
-        console.log("LABEL: " + item.label)
-        switch (iiif.version) {
-          case 2:
-          case "2":
-            item.thumb = v2GetManifestThumbnail(data)
-            break
-          case 3:
-          case "3":
-            item.thumb = v3GetManifestThumbnail(data)
-            break
-          default:
-            item.thumb = "logo-small-grey.png"
-            break
-        }
-
-      } catch (err) {
-        console.log("NO NO NO")
-        console.log(err)
-        item.error = 1
-        item.label = url
-        item.thumb = "logo-small-grey.png"
-      }
-    } else if (iiif.api == "image") {
-      item.label = url
-      switch (iiif.version) {
-        case 2:
-        case "2":
-          item.thumb = data['@id'] + '/full/100,/0/default.jpg'
-          break
-        case 3:
-        case "3":
-          item.thumb = data['id'] + '/full/100,/0/default.jpg'
-          break
-        default:
-          item.thumb = "logo-small-grey.png"
-          break
-      }
-    } else {
-      item.label = url
-      item.thumb = "logo-small.png"
-    }
-    if (iiif.type == "manifest") {
-      // tabStorage[tabId].iiif.manifests[item.id] = item
-      addToTabStorage(tabId, 'manifests', item.id, item)
-    } else if (iiif.type == "collection") {
-      try {
-        if (typeof data.label === 'string' || data.label instanceof String) {
-          item.label = data.label
-        } else {
-          if ('en' in data.label) {
-            item.label = data.label['en'][0]
-          } else if (Array.isArray(data.label) && ('@value' in data.label[0])) {
-            item.label = data.label[0]['@value']
-          } else {
-            item.label = item.id
-          }
-        }
-        console.log("LABEL: " + item.label)
-      } catch (err) {
-        item.label = url
-      }
-      // tabStorage[tabId].iiif.collections[item.id] = item
-      addToTabStorage(tabId, 'collections', item.id, item)
-    } else {
-      // tabStorage[tabId].iiif.images[item.id] = item
-      addToTabStorage(tabId, 'images', item.id, item)
-    }
-    // if(tabId==activeTab) {
+    addToTabStorage(tabId, storageKey, item.id, item)
     console.log("compileData-END")
     updateIcon(tabId)
-    // }
   }
 
   function analyzeHTMLBody(doc, tabId) {
+    const { truncated, urls } = extractIIIFUrlsFromHTML(doc)
 
-    let url
-
-    // Generic 1, should match e.g. National Museum Sweden
-    let regex_generic1 = /(https?\:\/\/[^\"<\ ]*(iiif|i3f|manifest)[^\"<\ ]*(?<!.jpg))/gi
-    let allurls = [...doc.matchAll(regex_generic1)]
-    let params = []
-    for (let key in allurls) {
-      if (!params.includes(allurls[key][1])) {
-        params.push(allurls[key][1])
-      }
-    }
-    if (params.length > 19) {
-      // FIXME do nice status in tab header, dont alert
-      // alert("detektIIIF: limiting huge number of matches (case 1)")
-      console.log("detektIIIF: limiting huge number of matches (case 1)")
-      params = params.slice(0, 19)
-      tabStorage[tabId].truncated = true
-      saveLocalTabStorage()
-
-    }
-    for (let key in params) {
-      url = params[key]
-      if (cache[url] === undefined) {
-        console.log("check guess type 1: " + url)
-        cache[url] = "INPROGRESS"
-        fetchHttp(url, tabId)
-      } else {
-        // console.log("NO check type 1: "+url)
-      }
+    if (truncated) {
+      console.log("detektIIIF: limiting huge number of matches")
+      markTabTruncated(tabId)
     }
 
-    // Generic 2, intra-Link
-    let regex_generic2 = /http[^\"<\ ]*=(https?\:\/\/[^\"\&]*(iiif|i3f|manifest|collection)[^\"\&<]*)/gi
-    allurls = [...doc.matchAll(regex_generic2)]
-    params = []
-    for (let key in allurls) {
-      if (!params.includes(allurls[key][1])) {
-        params.push(allurls[key][1])
-      }
+    for (const url of urls) {
+      console.log("check guessed URL: " + url)
+      queueFetch(url, tabId)
     }
-    if (params.length > 19) {
-      console.log("detektIIIF: limiting huge number of matches (case 2)") // FIXME do nice status in tab header, dont alert
-      params = params.slice(0, 19)
-      tabStorage[tabId].truncated = true
-      saveLocalTabStorage()
-    }
-    for (let key in params) {
-      url = params[key]
-      if (cache[url] === undefined) {
-        console.log("check guess type 2: " + url)
-        cache[url] = "INPROGRESS"
-        fetchHttp(url, tabId)
-      } else {
-        // console.log("NO check type 2: "+url)
-      }
-    }
-
-    console.log("GENERIC 3")
-    // Generic 3, .json
-    let regex_generic3 = /(https?\:\/\/[^\"\ <>]*(iiif|i3f|manifest|collection)[^\"\ <>]*\.json)/gi
-    allurls = [...doc.matchAll(regex_generic3)]
-    console.log("CASE 3")
-    console.log(allurls)
-    params = []
-    for (let key in allurls) {
-      if (!params.includes(allurls[key][1])) {
-        params.push(allurls[key][1])
-      }
-    }
-    if (params.length > 19) {
-      console.log("detektIIIF: limiting huge number of matches (case 3)") // FIXME do nice status in tab header, dont alert
-      params = params.slice(0, 19)
-      tabStorage[tabId].truncated = true
-      saveLocalTabStorage()
-    }
-    for (let key in params) {
-      url = params[key]
-      if (cache[url] === undefined) {
-        console.log("check guess type 3: " + url)
-        cache[url] = "INPROGRESS"
-        fetchHttp(url, tabId)
-      } else {
-        // console.log("NO check type 2: "+url)
-      }
-    }
-
-    let regex_imageapi = /(https:\/\/[^\"\>]+\/)[maxful0-9,!]+\/[maxful0-9,!]+\/[0-9\!]{1,4}\/default\.jpg/gm
-    allurls = [...doc.matchAll(regex_imageapi)]
-    params = []
-    for (let key in allurls) {
-      if (!params.includes(allurls[key][1])) {
-        params.push(allurls[key][1])
-      }
-    }
-    if (params.length > 19) {
-      console.log("detektIIIF: limiting huge number of matches (case 3)") // FIXME do nice status in tab header, dont alert
-      params = params.slice(0, 19)
-      tabStorage[tabId].truncated = true
-      saveLocalTabStorage()
-    }
-    for (let key in params) {
-      url = params[key] + "info.json"
-      if (cache[url] === undefined) {
-        console.log("check guess type 3: " + url)
-        cache[url] = "INPROGRESS"
-        fetchHttp(url, tabId)
-      } else {
-        // console.log("NO check type 3: "+url)
-      }
-    }
-
-    // var offdoc = document.createElement('html')
-    // offdoc.innerHTML = doc
-    // var links = offdoc.getElementsByTagName('a')
-    // for(var i = 0 i< links.length i++) {
-    //   var link = links[i].href
-    //   if(link.includes("iiif")) {
-    //     console.log(link)
-    //   }
-    // }
-
-  }
-
-  function analyzeJSONBody(body, url) {
-    // console.log({body:body})
-    if (!body.hasOwnProperty("@context")) {
-      console.log("NO @context")
-      cache[url] = false // that's no IIIF, block by cache rule
-      return (false)
-    }
-
-    var ctx = body["@context"].split("/")
-    // alert(JSON.stringify(ctx))
-
-    if (body["@context"] === "http://www.shared-canvas.org/ns/context.json") {
-      var iiif = {
-        api: "presentation",
-        version: "2"
-      }
-    } else if (ctx[2] !== "iiif.io" || ctx[3] !== "api") {
-      console.log("NO iiif")
-      console.log({ ctx: ctx })
-      cache[url] = false // again. no IIIF, block by cache rule
-      return false
-    } else {
-      var iiif = {
-        api: ctx[4].toLowerCase(),
-        version: ctx[5].toLowerCase()
-      }
-    }
-
-    if (body.hasOwnProperty("@type")) {
-      iiif.type = body["@type"].split(":")[1].toLowerCase()
-    } else {
-      if (body.hasOwnProperty("type")) {
-        iiif.type = body["type"].toLowerCase()
-      } else {
-        iiif.type = false
-      }
-    }
-
-    return (iiif)
   }
 
   function updateAllIcons() {
@@ -632,20 +459,11 @@ import { v4 } from 'uuid'
   }
 
   function setIcon(value, tabId) {
-    let mv = chrome.runtime.getManifest().manifest_version
-    if (mv === 3) {
-      chrome.action.setBadgeBackgroundColor({ color: [255, 0, 0, 255], tabId: tabId })
-      if (typeof chrome.action.setBadgeTextColor === 'function') {
-        chrome.action.setBadgeTextColor({ color: [255, 255, 255, 255], tabId: tabId })
-      }
-      chrome.action.setBadgeText({ text: value, tabId: tabId })
-    } else {
-      chrome.browserAction.setBadgeBackgroundColor({ color: [255, 0, 0, 255], tabId: tabId })
-      if (typeof chrome.browserAction.setBadgeTextColor === 'function') {
-        chrome.browserAction.setBadgeTextColor({ color: [255, 255, 255, 255], tabId: tabId })
-      }
-      chrome.browserAction.setBadgeText({ text: value, tabId: tabId })
+    chrome.action.setBadgeBackgroundColor({ color: [255, 0, 0, 255], tabId: tabId })
+    if (typeof chrome.action.setBadgeTextColor === 'function') {
+      chrome.action.setBadgeTextColor({ color: [255, 255, 255, 255], tabId: tabId })
     }
+    chrome.action.setBadgeText({ text: value, tabId: tabId })
   }
 
   function filterURLs(url) { // returns true=block, false=accept
@@ -659,19 +477,23 @@ import { v4 } from 'uuid'
       return false
     }
 
-    let filter = ignoreDomains
+    let hostname
 
-    // console.log("matching "+url)
-    var hostname = url.match(/^(https?\:)\/\/([^:\/]*)\/(.*)$/)
-    if (!hostname) {
+    try {
+      hostname = new URL(url).hostname
+    } catch {
       console.log("NO REGEX MATCH: " + url)
       return true
     }
-    hostname = hostname[2] // .split('.')
     // hostname = hostname[hostname.length-2]+"."+hostname[hostname.length-1]
-    for (let key in filter) {
-      // console.log("CHECKING if "+filter[key]+" ends with "+hostname)
-      if (hostname.endsWith(filter[key])) {
+    for (const domain of ignoreDomains) {
+      const filterDomain = String(domain || '').trim()
+
+      if (!filterDomain) {
+        continue
+      }
+
+      if (hostname.endsWith(filterDomain)) {
         console.log("IGNORED BY HOSTNAME (" + hostname + "), SETTING CACHE RULE: " + url)
         cache[url] = false
         return true
@@ -694,7 +516,7 @@ import { v4 } from 'uuid'
         console.log("POPUP INIT")
         console.log(tabStorage)
         //  send Info on current Tab
-        response(Object.assign({}, tabStorage[msg.tabId])) // ,{basket: basket}))
+        response(Object.assign({}, tabStorage[msg.tabId]))
         break
       case 'docLoad':
         console.log("DOC RECIEVED")
@@ -708,10 +530,6 @@ import { v4 } from 'uuid'
         console.log("Getting iframe " + msg.url)
         fetchHTML(msg.url, msg.tabId)
         break
-      // case 'basketUpd':
-      //     console.log("BASKET WAS UPDATED")
-      //     basket = msg.basket
-      //     break
       default:
         response('unknown request')
         break
@@ -723,7 +541,7 @@ import { v4 } from 'uuid'
     // console.log("HEADERS RECVD")
     // console.log(details)
 
-    var { tabId, requestId, url, timeStamp, method } = details
+    var { tabId, requestId, url, method } = details
 
     if (tabId === chrome.tabs.TAB_ID_NONE) {
       return
@@ -737,29 +555,27 @@ import { v4 } from 'uuid'
       return
     }
 
-    if (method != "GET") {
+    if (method !== "GET") {
       cache[url] = false
       return
     }
 
-    var accepted = false
-    var cors = false
+    let accepted = false
+    let cors = false
 
-    for (let index = 0; index < details.responseHeaders.length; index++) {
-      var item = details.responseHeaders[index]
-      if (
-        item.name.toLowerCase().includes("type") &&
-        item.value.toLowerCase().includes("json")
-      ) {
+    for (const item of details.responseHeaders || []) {
+      const name = item.name.toLowerCase()
+      const value = item.value || ''
+
+      if (name === "content-type" && isJsonContentType(value)) {
         accepted = true
       }
-      if (
-        item.name.toLowerCase().includes("access-control-allow-origin") &&
-        item.value.toLowerCase().includes("*".toUpperCase())
-      ) {
+
+      if (name === "access-control-allow-origin" && value.includes("*")) {
         cache_cors[url] = cors = true
       }
-      if (item.name == "Content-Length" && item.value > 1000000) {
+
+      if (name === "content-length" && Number(value) > 1000000) {
         // console.log("discard(2) "+details.url)
         accepted = false
         cache[url] = false
@@ -767,7 +583,7 @@ import { v4 } from 'uuid'
       }
     }
 
-    if (accepted == false) {
+    if (accepted === false) {
       cache[url] = false
       return
     }
@@ -795,9 +611,9 @@ import { v4 } from 'uuid'
 
     console.log("onCompleted")
 
-    let { tabId, requestId, url, timeStamp, method } = details
+    let { tabId, requestId, url } = details
 
-    if (tabId == chrome.tabs.TAB_ID_NONE) {
+    if (tabId === chrome.tabs.TAB_ID_NONE) {
       console.log("TAB_ID_NONE")
       return
     }
@@ -837,93 +653,33 @@ import { v4 } from 'uuid'
   function sendMsg(tabId) {
     console.log("sendMsg")
 
-    if (document === undefined) {
+    if (typeof document === 'undefined') {
       console.log("NO DOCUMENT DEFINED")
       return
     }
 
-    // docStorage[tabId] = document.documentElement.innerHTML
     chrome.runtime.sendMessage(
       { type: 'docLoad', doc: document.documentElement.innerHTML, tabId: tabId }
     )
-
-    return // stop here the observer madness (nor now)
-
-    let container = document.documentElement || document.body
-
-    let config = { attributes: true, childList: true, characterData: true, subtree: true }
-
-    console.log("< YES NEW OBSERVER YES >")
-    let observer = new MutationObserver(function (mutation) {
-      console.log("MUTATION event")
-      console.log({ mutation: mutation })
-      chrome.runtime.sendMessage(
-        { type: 'docLoad', doc: document.documentElement.innerHTML, tabId: tabId }
-      )
-    })
-    observer.observe(container, config)
-
-    // let iframes = Array.from(document.getElementsByTagName("iframe"))
-    // // let ifobservers = []
-    // for(let key in iframes) {
-    //   if(filterURLs(iframes[key].src)===false) {
-    //     chrome.runtime.sendMessage(
-    //       {type: 'fetchHTML', url: iframes[key].src, tabId: tabId}
-    //     )
-    //   }
-    //
-    //   // ifobservers[key] = new MutationObserver(function(mutation) {
-    //   //     console.log("CCC")
-    //   //     console.log(mutation)
-    //   //     // chrome.runtime.sendMessage(
-    //   //     //   {type: 'docLoad', doc: iframes[key].document.documentElement.innerHTML, tabId: tabId}
-    //   //     // )
-    //   // })
-    //   // console.log("key: "+key)
-    //   // console.log({iframe:iframes[key]})
-    //   // ifobservers[key].observe(iframes[key].contentWindow.body,config)
-    // }
-
   }
 
   function getAndObserve(tabId) {
 
     console.log("OBSERVING: " + tabId)
 
-    let mv = chrome.runtime.getManifest().manifest_version
-
-    console.log("MV is " + mv)
-    if (mv === 3) {
-      console.log("EXEC SCRIPT")
-      chrome.scripting.executeScript({
-        target: { tabId: parseInt(tabId) },
-        func: sendMsg,
-        args: [tabId]
-      }, () => {
-        console.log("What the fish?")
-        if (chrome.runtime.lastError) {
-          console.log("Whoops.. " + chrome.runtime.lastError.message)
-        } else {
-        }
+    console.log("EXEC SCRIPT")
+    chrome.scripting.executeScript({
+      target: { tabId: parseInt(tabId) },
+      func: sendMsg,
+      args: [tabId]
+    }, () => {
+      console.log("What the fish?")
+      if (chrome.runtime.lastError) {
+        console.log("Whoops.. " + chrome.runtime.lastError.message)
+      } else {
       }
-      )
-
-    } else {
-      console.log("chrome.tabs.executeScript")
-      chrome.tabs.executeScript({
-        code:
-          this.sendMsg.toString()
-          + ```
-                    sendMsg(${tabId})
-                  ```// or 'file: "getPagesSource.js"'
-      }, function (result) {
-        if (chrome.runtime.lastError) {
-          console.log("tabs.executeScript: " + chrome.runtime.lastError.message)
-        } else {
-          console.log(result)
-        }
-      })
     }
+    )
 
   }
 
@@ -931,12 +687,12 @@ import { v4 } from 'uuid'
     console.log("UPDATE TAB " + tabId)
     console.log(changeInfo)
 
-    if (tabId == chrome.tabs.TAB_ID_NONE) {
+    if (tabId === chrome.tabs.TAB_ID_NONE) {
       console.log("chrome.tabs.onUpdated: called on none-tab")
       return
     }
 
-    if ((typeof tab.url === 'string') && (!tab.url.startsWith('http'))) {
+    if ((typeof tab.url === 'string') && (!isHttpUrl(tab.url))) {
       return
     }
 
@@ -952,25 +708,10 @@ import { v4 } from 'uuid'
     }
 
     if (typeof tab.url === 'string') {
-
-      let regex = /(https:\/\/[^\"\>]+\/)[maxful0-9,!]+\/[maxful0-9,!]+\/[0-9\!]{1,4}\/default\.jpg/gm
-      let matches = tab.url.matchAll(regex)
-      matches = [...matches]
-      if (matches !== null && matches.length > 0) {
-        console.log({ matches: matches })
-        fetchHttp(matches[0][1] + "info.json", tabId)
+      for (const url of extractIIIFUrlsFromPageUrl(tab.url)) {
+        console.log("check page URL rule: " + url)
+        queueFetch(url, tabId)
       }
-
-      // Internet Archive
-      // https://archive.org/details/mma_albert_einstein_270714
-      regex = /https:\/\/archive.org\/details\/([^\/]+)/gm
-      matches = tab.url.matchAll(regex)
-      matches = [...matches]
-      if (matches !== null && matches.length > 0) {
-        console.log({ matches: matches })
-        fetchHttp("https://iiif.archive.org/iiif/" + matches[0][1] + "/manifest.json", tabId)
-      }
-
     }
 
     // if(filterURLs(tab.url)) {
@@ -978,10 +719,8 @@ import { v4 } from 'uuid'
     //   return
     // }
 
-    if (changeInfo.status === 'complete' || true) {
-      // if(!filterURLs(tab.url)) {
+    if (changeInfo.status === 'complete') {
       getAndObserve(tabId)
-      // }
       updateIcon(tabId)
     }
   })
@@ -1017,25 +756,18 @@ import { v4 } from 'uuid'
     try {
       console.log("chrome.tabs.get")
       chrome.tabs.get(parseInt(tabId), (tab) => {
+        if (chrome.runtime.lastError || !tab || !isHttpUrl(tab.url)) {
+          console.log("Couldn't use Tab " + tabId)
+          return
+        }
+
         console.log({ tab: tab })
         // just give it a try
-        fetchHttp(tab.url, tab.id)
+        queueFetch(tab.url, tab.id)
 
-        let rules = {
-          europeana1: {
-            search: /https\:\/\/www\.europeana\.eu\/..\/item\/2020903\/([^\?\"]+).*/gi,
-            replace: 'https://api.smk.dk/api/v1/iiif/manifest/?id=$1'
-          },
-          nationalmuseumse1: {
-            search: /https\:\/\/nationalmuseumse\.iiifhosting\.com\/iiif\/([^\/]+)\//gi,
-            replace: 'https://nationalmuseumse.iiifhosting.com/iiif/$1/manifest.json'
-          }
-        }
-        for (let key in rules) {
-          for (let result of tab.url.matchAll(rules[key].search)) {
-            let guess = result[0].replace(rules[key].search, rules[key].replace)
-            fetchHttp(guess, tab.id)
-          }
+        for (const url of extractIIIFUrlsFromPageUrl(tab.url)) {
+          console.log("check page URL rule: " + url)
+          queueFetch(url, tab.id)
         }
       })
     } catch {
@@ -1045,7 +777,10 @@ import { v4 } from 'uuid'
 
   chrome.tabs.onReplaced.addListener((newTabId, oldTabId) => {
     console.log("onReplaced from:" + oldTabId + " to:" + newTabId)
-    tabStorage[newTabId] = JSON.parse(JSON.stringify(tabStorage[oldTabId]))
+    tabStorage[newTabId] = normalizeTabStorageEntry(
+      newTabId,
+      tabStorage[oldTabId] || {}
+    )
     delete tabStorage[oldTabId]
     saveLocalTabStorage()
   })
@@ -1069,8 +804,8 @@ import { v4 } from 'uuid'
   chrome.storage.onChanged.addListener((changes, namespace) => {
     for (let [key, { oldValue, newValue }] of Object.entries(changes)) {
 
-      if (namespace === "" && key === "ignoreDomains") {
-        ignoreDomains = newValue
+      if (namespace === "local" && key === "ignoreDomains") {
+        ignoreDomains = Array.isArray(newValue) ? newValue : globalDefaults.ignoreDomains
       }
 
       if (namespace === 'local') {
@@ -1087,6 +822,9 @@ import { v4 } from 'uuid'
   ignoreDomains = globalDefaults.ignoreDomains
   chrome.storage.local.get('ignoreDomains', function (data) {
     console.log({ GOT: data })
+    if (Array.isArray(data.ignoreDomains)) {
+      ignoreDomains = data.ignoreDomains
+    }
   })
 
   loadLocalTabStorage()

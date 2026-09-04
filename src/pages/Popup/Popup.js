@@ -8,8 +8,21 @@ import {getCurrentTab} from "./common/Utils"
 import DisplayCollection from "./components/DisplayCollection"
 import DisplayManifest from "./components/DisplayManifest"
 import DisplayImage from "./components/DisplayImage"
-import DisplayBasket from "./components/DisplayBasket"
+import DisplayWorkspace from "./components/DisplayWorkspace"
 import PostButton from "./components/PostButton"
+import {
+  DEFAULT_WORKSPACE_ID,
+  addItemToWorkspace,
+  addWorkspace,
+  deleteWorkspace,
+  getActiveWorkspace,
+  loadWorkspaceState,
+  removeItemFromWorkspace,
+  renameWorkspace,
+  saveWorkspaceItems,
+  setActiveWorkspace,
+} from "../../shared/workspaces"
+import { normalizeWorkspaceLinks } from "../../shared/viewerLinks"
 
 import PropTypes from 'prop-types';
 import Tabs from '@mui/material/Tabs';
@@ -18,10 +31,14 @@ import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
 
 import IconButton from '@mui/material/IconButton';
-import ShoppingCartOutlinedIcon from '@mui/icons-material/ShoppingCartOutlined';
+import WorkspacesOutlinedIcon from '@mui/icons-material/WorkspacesOutlined';
 import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
 import Badge from '@mui/material/Badge';
 import Tooltip from '@mui/material/Tooltip';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
 
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
@@ -31,6 +48,9 @@ import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
 
 import Snackbar from '@mui/material/Snackbar';
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import DriveFileRenameOutlineIcon from '@mui/icons-material/DriveFileRenameOutline';
 
 import packageJson from '../../../package.json'
 
@@ -79,28 +99,35 @@ class Popup extends Component {
             manifests: {},
             collections: {},
             images: {},
-            basket: {},
+            workspaces: {},
+            activeWorkspaceId: DEFAULT_WORKSPACE_ID,
             settings: {
               showUrl: true,
-              postBasketCollectionTo: Object.assign({},this.theme.postBasketCollectionTo),
-              openManifestLinks: Object.assign({},this.theme.openManifestLinks),
+              postWorkspaceCollectionTo: normalizeWorkspaceLinks(this.theme.postWorkspaceCollectionTo || this.theme.postBasketCollectionTo),
+              openManifestLinks: normalizeWorkspaceLinks(this.theme.openManifestLinks),
               viewManifestInfo: Object.assign({},this.theme.viewManifestInfo)
             },
-            tab: 0, // 0=Manifests 1=Images 2=Collections 3=Basket 4=About
+            tab: 0, // 0=Manifests 1=Images 2=Collections 3=Workspaces 4=About
             remDialog: false,
             remKey: null,
             snackOpen: false,
             snackMsg: ''
         }
-        this.copyBasketCollection = this.copyBasketCollection.bind(this)
+        this.copyWorkspaceCollection = this.copyWorkspaceCollection.bind(this)
         this.closeRemDialog = this.closeRemDialog.bind(this)
         this.openRemDialog = this.openRemDialog.bind(this)
         this.removeOperation = this.removeOperation.bind(this)
         this.getDataFromLocalStorage = this.getDataFromLocalStorage.bind(this)
         this.openLocalMirador = this.openLocalMirador.bind(this)
+        this.loadWorkspaces = this.loadWorkspaces.bind(this)
+        this.addToWorkspace = this.addToWorkspace.bind(this)
+        this.createWorkspace = this.createWorkspace.bind(this)
+        this.renameActiveWorkspace = this.renameActiveWorkspace.bind(this)
+        this.deleteActiveWorkspace = this.deleteActiveWorkspace.bind(this)
+        this.setActiveWorkspace = this.setActiveWorkspace.bind(this)
         // this.routine = this.routine.bind(this)
 
-        this.loadBasket()
+        this.loadWorkspaces()
 
         chrome.storage.onChanged.addListener( (changes, namespace) => {
           for (let [key, { oldValue, newValue }] of Object.entries(changes)) {
@@ -109,12 +136,16 @@ class Popup extends Component {
               this.setState({settings:Object.assign({},this.state.settings,{showUrl:newValue})})
             }
 
-            if(namespace==="local" &&  key==="postBasketCollectionTo") {
-              this.setState({settings:Object.assign({},this.state.settings,{postBasketCollectionTo:newValue})})
+            if(namespace==="local" &&  key==="postWorkspaceCollectionTo") {
+              this.setState({settings:Object.assign({},this.state.settings,{postWorkspaceCollectionTo:normalizeWorkspaceLinks(newValue)})})
             }
 
             if(namespace==="local" &&  key==="openManifestLinks") {
-              this.setState({settings:Object.assign({},this.state.settings,{openManifestLinks:newValue})})
+              this.setState({settings:Object.assign({},this.state.settings,{openManifestLinks:normalizeWorkspaceLinks(newValue)})})
+            }
+
+            if(namespace==="sync" && (key==="workspaces" || key==="activeWorkspaceId")) {
+              this.loadWorkspaces()
             }
 
             // console.log(
@@ -171,12 +202,12 @@ class Popup extends Component {
         //
         //     // chrome.runtime.sendMessage({type: 'popupInit', tabId: tab.id, url: tab.url}, (response) => {
         //     //     if (response) {
-        //     //         this.setState(Object.assign({},{...response.iiif})) //,{basket:response.basket}))
+        //     //         this.setState(Object.assign({},{...response.iiif}))
         //     //     }
         //     // })
         // })
         this.getDataFromLocalStorage()
-        this.loadBasket()
+        this.loadWorkspaces()
         this.loadSettings()
 
         if(Object.keys(this.state.manifests).length>0) {
@@ -185,7 +216,7 @@ class Popup extends Component {
           this.setState({tab:1})
         } else if(Object.keys(this.state.collections).length>0) {
           this.setState({tab:2})
-        } else if(Object.keys(this.state.basket).length>0) {
+        } else if(Object.keys(this.getCurrentWorkspaceItems()).length>0) {
           this.setState({tab:3})
         } else {
           this.setState({tab:0})
@@ -208,13 +239,23 @@ class Popup extends Component {
     }
 
     loadSettings() {
-        chrome.storage.local.get('postBasketCollectionTo', (data) => {
-          console.log({LocSetB:data})
-          if('postBasketCollectionTo' in data) { this.setState({settings:Object.assign({},this.state.settings,data)}) }
+        chrome.storage.local.get(['postWorkspaceCollectionTo', 'postBasketCollectionTo'], (data) => {
+          const storedLinks = data.postWorkspaceCollectionTo || data.postBasketCollectionTo
+          if(storedLinks) {
+            this.setState({
+              settings:Object.assign({},this.state.settings,{
+                postWorkspaceCollectionTo: normalizeWorkspaceLinks(storedLinks)
+              })
+            })
+          }
         })
         chrome.storage.local.get('openManifestLinks', (data) => {
           console.log({LocSetM:data})
-          if('openManifestLinks' in data) { this.setState({settings:Object.assign({},this.state.settings,data)}) }
+          if('openManifestLinks' in data) {
+            this.setState({settings:Object.assign({},this.state.settings,{
+              openManifestLinks: normalizeWorkspaceLinks(data.openManifestLinks)
+            })})
+          }
         })
         chrome.storage.local.get('showUrl', (data) => {
           console.log({LocSetS:data})
@@ -222,44 +263,108 @@ class Popup extends Component {
         })
     }
 
-    // FIXME use sync if it was asked for
-
     openLocalMirador() {
-      chrome.tabs.create({'url': 'miradorpage.html'})
+      chrome.tabs.create({'url': `miradorpage.html?workspace=${encodeURIComponent(this.state.activeWorkspaceId)}`})
     }
 
-    loadBasket() {
-      console.log("loading basket "+this.defaults.storeBasket)
-      const s = this.defaults.storeBasket==='sync' ? chrome.storage.sync : chrome.storage.sync
-      s.get('basket', (data) => {
-        if('basket' in data) {
-          this.setState(data)
-        }
+    handleWorkspaceError(error) {
+      console.error(error)
+      this.setState({
+        snackOpen: true,
+        snackMsg: `Workspace could not be saved: ${error.message || error}`,
       })
     }
 
-    saveBasket(data) {
-      console.log("saving basket "+this.defaults.storeBasket)
-      const s = this.defaults.storeBasket==='sync' ? chrome.storage.sync  : chrome.storage.sync
-      s.set({basket:data}, () => {
-        console.log({BSaved:data})
-        this.setState({basket:data})
-      })
+    getCurrentWorkspace() {
+      return getActiveWorkspace(this.state.workspaces, this.state.activeWorkspaceId)
     }
 
-    addToBasket(key) {
-      console.log({addKey:key})
-      console.log({addFrom:this.state.manifests})
-      let newbasket = Object.assign(this.state.basket)
-      for(let mkey in this.state.manifests) {
-        console.log(mkey+" ?== "+key)
-        if(mkey==key) {
-          console.log("YES")
-         newbasket[key] = Object.assign({},this.state.manifests[mkey])
-        }
+    getCurrentWorkspaceItems() {
+      return this.getCurrentWorkspace().items || {}
+    }
+
+    async loadWorkspaces() {
+      try {
+        const workspaceState = await loadWorkspaceState()
+        this.setState(workspaceState)
+      } catch (error) {
+        this.handleWorkspaceError(error)
       }
-      this.saveBasket(newbasket)
-      // chrome.runtime.sendMessage({type: 'basketUpd', basket: this.state.basket})
+    }
+
+    async setActiveWorkspace(eventOrId) {
+      try {
+        const workspaceId = eventOrId && eventOrId.target ? eventOrId.target.value : eventOrId
+        const workspaceState = await setActiveWorkspace(workspaceId)
+        this.setState(workspaceState)
+      } catch (error) {
+        this.handleWorkspaceError(error)
+      }
+    }
+
+    async createWorkspace() {
+      const name = window.prompt('Workspace name')
+      if (!name) {
+        return
+      }
+
+      try {
+        const workspaceState = await addWorkspace(name)
+        this.setState(workspaceState)
+      } catch (error) {
+        this.handleWorkspaceError(error)
+      }
+    }
+
+    async renameActiveWorkspace() {
+      const workspace = this.getCurrentWorkspace()
+      const name = window.prompt('Workspace name', workspace.name)
+      if (!name) {
+        return
+      }
+
+      try {
+        const workspaceState = await renameWorkspace(workspace.id, name)
+        this.setState(workspaceState)
+      } catch (error) {
+        this.handleWorkspaceError(error)
+      }
+    }
+
+    async deleteActiveWorkspace() {
+      const workspace = this.getCurrentWorkspace()
+      if (workspace.id === DEFAULT_WORKSPACE_ID) {
+        return
+      }
+
+      if (!window.confirm(`Delete workspace "${workspace.name}"?`)) {
+        return
+      }
+
+      try {
+        const workspaceState = await deleteWorkspace(workspace.id)
+        this.setState(workspaceState)
+      } catch (error) {
+        this.handleWorkspaceError(error)
+      }
+    }
+
+    async addToWorkspace(key) {
+      const manifest = this.state.manifests[key]
+      if (!manifest) {
+        return
+      }
+
+      try {
+        const workspaceState = await addItemToWorkspace(
+          this.state.activeWorkspaceId,
+          key,
+          manifest
+        )
+        this.setState(workspaceState)
+      } catch (error) {
+        this.handleWorkspaceError(error)
+      }
     }
 
     openRemDialog(key) {
@@ -270,41 +375,45 @@ class Popup extends Component {
       this.setState({remDialog:false,remKey:null})
     }
 
-    removeOperation() {
-      let newbasket = {}
-      if(this.state.remKey!==null) {
-        newbasket = Object.assign(this.state.basket)
-        delete newbasket[this.state.remKey]
-      } else {
-        console.log("NOT??? removing from basket: "+this.state.remKey)
+    async removeOperation() {
+      try {
+        let workspaceState
+        if(this.state.remKey!==null) {
+          workspaceState = await removeItemFromWorkspace(
+            this.state.activeWorkspaceId,
+            this.state.remKey
+          )
+        } else {
+          workspaceState = await saveWorkspaceItems(this.state.activeWorkspaceId, {})
+        }
+        this.setState(workspaceState)
+        this.closeRemDialog()
+      } catch (error) {
+        this.handleWorkspaceError(error)
       }
-      this.saveBasket(newbasket)
-      this.closeRemDialog()
-      // chrome.runtime.sendMessage({type: 'basketUpd', basket: newbasket})
     }
 
-    buildBasketCollection(basket) {
+    buildWorkspaceCollection(workspaceItems, workspace = this.getCurrentWorkspace()) {
       var c = {
             "@context": "http://iiif.io/api/presentation/2/context.json",
-            "@id": "https://detektiiif.manducus.net/invalide",
+            "@id": `https://detektiiif.net/workspaces/${workspace.id}`,
             "@type": "sc:Collection",
-            "label": "detektIIIF2 Collection",
+            "label": `${workspace.name} Workspace`,
             "manifests": []
       }
-      for (var key in basket) {
-        console.log(basket[key])
+      for (var key in workspaceItems) {
         c.manifests.push({
-            "@id": basket[key].url, // shoud be .id -- Yes, this is for you, guys, providing other URLs than IDs!
+            "@id": workspaceItems[key].url,
             "@type": "sc:Manifest",
-            "label": basket[key].label,
-            "thumbnail": basket[key].thumb
+            "label": workspaceItems[key].label,
+            "thumbnail": workspaceItems[key].thumb
         })
       }
       return c
     }
 
-    copyBasketCollection() {
-      var c = this.buildBasketCollection(this.state.basket)
+    copyWorkspaceCollection() {
+      var c = this.buildWorkspaceCollection(this.getCurrentWorkspaceItems())
       navigator.clipboard.writeText(JSON.stringify(c)).then( () => {
         this.setState({
           snackOpen:true,
@@ -327,7 +436,9 @@ class Popup extends Component {
         var cnn = Object.keys(this.state.collections).length
         var mnn = Object.keys(this.state.manifests).length
         var inn = Object.keys(this.state.images).length
-        var bnn = Object.keys(this.state.basket).length
+        const activeWorkspace = this.getCurrentWorkspace()
+        const workspaceItems = activeWorkspace.items || {}
+        var wnn = Object.keys(workspaceItems).length
 
         let ms = []
         if(Object.keys(this.state.manifests).length>0) {
@@ -342,7 +453,7 @@ class Popup extends Component {
                   cors = { this.state.manifests[key].cors }
                   error = { this.state.manifests[key].error }
                   copyUrl = {this.copyUrl.bind(this)}
-                  addToBasket = {this.addToBasket.bind(this)}
+                  addToWorkspace = {this.addToWorkspace.bind(this)}
                   settings = {this.state.settings}
                   theme = {this.theme}
               />)
@@ -396,34 +507,31 @@ class Popup extends Component {
           is = "No IIIF images detected."
         }
 
-        console.log({basket:this.state.basket})
-
-        let bs = []
-        if(Object.keys(this.state.basket).length>0) {
-          for (let key in this.state.basket) {
-            console.log({pushing:this.state.basket[key]})
-              bs.push(<
-                  DisplayBasket
-                  key = { `item-${this.state.basket[key].url}` }
-                  id = { this.state.basket[key].id }
-                  label = { this.state.basket[key].label }
-                  thumb = { this.state.basket[key].thumb }
-                  url = { this.state.basket[key].url }
-                  cors = { this.state.basket[key].cors }
-                  error = { this.state.basket[key].error }
+        let ws = []
+        if(Object.keys(workspaceItems).length>0) {
+          for (let key in workspaceItems) {
+              ws.push(<
+                  DisplayWorkspace
+                  key = { `item-${workspaceItems[key].url}` }
+                  id = { workspaceItems[key].id }
+                  label = { workspaceItems[key].label }
+                  thumb = { workspaceItems[key].thumb }
+                  url = { workspaceItems[key].url }
+                  cors = { workspaceItems[key].cors }
+                  error = { workspaceItems[key].error }
                   copyUrl = {this.copyUrl.bind(this)}
-                  removeFromBasket = {this.openRemDialog.bind(this)}
+                  removeFromWorkspace = {this.openRemDialog.bind(this)}
                   settings = {this.state.settings}
                   theme = {this.theme}
               />)
           }
         } else {
-          bs = this.theme.basketName + " is empty."
+          ws = `${activeWorkspace.name} workspace is empty.`
         }
 
         // alert("APP "+JSON.stringify(this.state.manifests))
 
-        let cc = ms.concat(cs,is,bs)
+        let cc = ms.concat(cs,is,ws)
         if(cc.length==0) {
           cc.push("No IIIF content on this page.")
         }
@@ -432,6 +540,52 @@ class Popup extends Component {
 
         let subHeaderContent = []
         let outputContent = []
+        const workspaceOptions = Object.values(this.state.workspaces).length > 0
+          ? Object.values(this.state.workspaces).sort((a, b) => (
+          a.name.localeCompare(b.name)
+        ))
+          : [activeWorkspace]
+        const workspaceControls = (
+          <div className="WorkspaceControls" key="WORKSPACE-CONTROLS">
+            <FormControl size="small" className="WorkspaceSelectControl">
+              <InputLabel id="workspace-select-label">Workspace</InputLabel>
+              <Select
+                labelId="workspace-select-label"
+                value={activeWorkspace.id}
+                label="Workspace"
+                onChange={this.setActiveWorkspace}
+              >
+                {workspaceOptions.map((workspace) => (
+                  <MenuItem value={workspace.id} key={`workspace-option-${workspace.id}`}>
+                    {workspace.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Tooltip title="Create workspace">
+              <IconButton aria-label="Create workspace" size="small" onClick={this.createWorkspace}>
+                <AddCircleOutlineIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Rename workspace">
+              <IconButton aria-label="Rename workspace" size="small" onClick={this.renameActiveWorkspace}>
+                <DriveFileRenameOutlineIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Delete workspace" describeChild>
+              <span>
+                <IconButton
+                  aria-label="Delete workspace"
+                  size="small"
+                  onClick={this.deleteActiveWorkspace}
+                  disabled={activeWorkspace.id === DEFAULT_WORKSPACE_ID}
+                >
+                  <DeleteOutlineIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </div>
+        )
 
         if(this.defaults.tabs===true) {
           outputContent.push(
@@ -440,7 +594,7 @@ class Popup extends Component {
                 <Tab label={"Manifests"+(mnn>0?` (${mnn})`:``)} value={0} {...a11yProps(0)} key={"TAB0"} />
                 <Tab label={"Images"+(inn>0?` (${inn})`:``)} value={1} {...a11yProps(1)} key={"TAB1"} />
                 <Tab label={"Collections"+(cnn>0?` (${cnn})`:``)} value={2}  {...a11yProps(2)} key={"TAB2"} />
-                <Tab label={`${this.theme.basketName}`+(bnn>0?` (${bnn})`:``)} value={3} {...a11yProps(3)} key={"TAB3"} />
+                <Tab label={`Workspaces`+(wnn>0?` (${wnn})`:``)} value={3} {...a11yProps(3)} key={"TAB3"} />
                 <Tab label="About" value={4} {...a11yProps(4)} key={"TAB4"} />
               </Tabs>
             </div>
@@ -457,27 +611,29 @@ class Popup extends Component {
                 {cs}
               </TabPanel>
               <TabPanel value={this.state.tab} index={3} key={"TABPANEL3"}>
-                {Object.keys(this.state.settings.postBasketCollectionTo).map(key =>
-                  this.state.settings.postBasketCollectionTo[key].tabBasket===true ?
+                {workspaceControls}
+                {Object.keys(this.state.settings.postWorkspaceCollectionTo).map(key =>
+                  this.state.settings.postWorkspaceCollectionTo[key].tabWorkspaces===true ?
                   <PostButton
                     lang="en"
-                    link={this.state.settings.postBasketCollectionTo[key]}
+                    link={this.state.settings.postWorkspaceCollectionTo[key]}
                     theme={this.theme}
-                    key={`postbutton-${v5(this.state.settings.postBasketCollectionTo[key].url+key,'1b671a64-40d5-491e-99b0-d37347111f20')}`}
-                    basket={this.state.basket}
-                    buildBasketCollection={this.buildBasketCollection}
+                    key={`postbutton-${v5(this.state.settings.postWorkspaceCollectionTo[key].url+key,'1b671a64-40d5-491e-99b0-d37347111f20')}`}
+                    workspace={activeWorkspace}
+                    workspaceItems={workspaceItems}
+                    buildWorkspaceCollection={this.buildWorkspaceCollection}
                   /> : null
                 )}
-                <button onClick={() => this.copyBasketCollection()} className="ButtonCopyBasket" key={"COPYBASKETCOLLECTION"}>Copy {this.theme.basketName} (JSON)</button>
-                <button onClick={() => this.openRemDialog(null)} className="ButtonClearBasket" key={"CLEARBASKETCOLLECTION"}>Clear {this.theme.basketName}</button>
-                <button onClick={() => this.openLocalMirador()} className="ButtonCopyBasket" key={"OPENBASKETINLOKALMIRADOR"}>Local Mirador</button>
+                <button onClick={() => this.copyWorkspaceCollection()} className="ButtonCopyWorkspace" key={"COPYWORKSPACECOLLECTION"}>Copy Workspace (JSON)</button>
+                <button onClick={() => this.openRemDialog(null)} className="ButtonClearWorkspace" key={"CLEARWORKSPACECOLLECTION"}>Clear Workspace</button>
+                <button onClick={() => this.openLocalMirador()} className="ButtonCopyWorkspace" key={"OPENWORKSPACEINLOCALMIRADOR"}>Local Mirador</button>
                 <br key={v4()}/>
                 <br key={v4()}/>
-                {bs}
+                {ws}
               </TabPanel>
               <TabPanel value={this.state.tab} index={4} key={"TABPANEL4"}>
                 {this.theme.about}
-                {'detektIIIF2 Version '}{this.softwareVersion}{' / Theme Version '}{this.themeVersion}
+                {'detektIIIF Version '}{this.softwareVersion}{' / Theme Version '}{this.themeVersion}
               </TabPanel>
             </div>
           )
@@ -492,27 +648,30 @@ class Popup extends Component {
               // subHeaderContent.push(<div className="SubHeaderButtons" key={"SUBHEADERBUTTONS"}></div>)
               break
             case 3:
-              subHeaderContent.push(<h3 key={'TABB'} className="SubHeaderHeading">{this.theme.basketName} ({bnn})</h3>)
+              subHeaderContent.push(<h3 key={'TABW'} className="SubHeaderHeading">Workspaces ({wnn})</h3>)
               subHeaderContent.push(
                 <div className="SubHeaderButtons" key={"SUBHEADERBUTTONS"}>
-                  <button onClick={() => this.copyBasketCollection()} className="ButtonCopyBasket" key={"COPYBASKETCOLLECTION"}>Copy Collection (JSON)</button>
-                  {Object.keys(this.state.settings.postBasketCollectionTo).map(key =>
+                  {workspaceControls}
+                  <button onClick={() => this.copyWorkspaceCollection()} className="ButtonCopyWorkspace" key={"COPYWORKSPACECOLLECTION"}>Copy Workspace (JSON)</button>
+                  {Object.keys(this.state.settings.postWorkspaceCollectionTo).map(key =>
+                    this.state.settings.postWorkspaceCollectionTo[key].tabWorkspaces===true ?
                     <PostButton
                       lang="en"
-                      link={this.state.settings.postBasketCollectionTo[key]}
+                      link={this.state.settings.postWorkspaceCollectionTo[key]}
                       theme={this.theme}
-                      key={`postbutton-${v5(this.state.settings.postBasketCollectionTo[key].url+key,'1b671a64-40d5-491e-99b0-d37347111f20')}`}
-                      basket={this.state.basket}
-                      buildBasketCollection={this.buildBasketCollection}
-                    />
+                      key={`postbutton-${v5(this.state.settings.postWorkspaceCollectionTo[key].url+key,'1b671a64-40d5-491e-99b0-d37347111f20')}`}
+                      workspace={activeWorkspace}
+                      workspaceItems={workspaceItems}
+                      buildWorkspaceCollection={this.buildWorkspaceCollection}
+                    /> : null
                   )}
-                  <Tooltip title="Remove all manifests">
+                  <Tooltip title="Remove all workspace items">
                     {
-                      this.theme.removeAllBasketImage===null ?
-                      <button onClick={() => this.openRemDialog(null)} className="ButtonClearBasket" key={"CLEARBASKETCOLLECTION"}>Remove All</button>
+                      this.theme.removeAllWorkspaceImage===null ?
+                      <button onClick={() => this.openRemDialog(null)} className="ButtonClearWorkspace" key={"CLEARWORKSPACECOLLECTION"}>Remove All</button>
                       :
-                      <IconButton color="primary" onClick={() => this.openRemDialog(null)} className="ButtonClearBasket" key={"CLEARBASKETCOLLECTION"}>
-                        <img src={this.theme.removeAllBasketImage}  className="iconSize" />
+                      <IconButton color="primary" onClick={() => this.openRemDialog(null)} className="ButtonClearWorkspace" key={"CLEARWORKSPACECOLLECTION"}>
+                        <img src={this.theme.removeAllWorkspaceImage}  className="iconSize" />
                       </IconButton>
                     }
 
@@ -535,11 +694,11 @@ class Popup extends Component {
                   {cs}
                 </TabPanel>
                 <TabPanel value={this.state.tab} index={3} key={"TABPANEL3"}>
-                  {bs}
+                  {ws}
                 </TabPanel>
                 <TabPanel value={this.state.tab} index={4} key={"TABPANEL4"}>
                   {this.theme.about}<br />
-                  {'detektIIIF3 '}{this.softwareVersion}{' / Theme'}{this.themeVersion}
+                  {'detektIIIF '}{this.softwareVersion}{' / Theme '}{this.themeVersion}
                 </TabPanel>
             </div>
           )
@@ -570,24 +729,24 @@ class Popup extends Component {
             {header}
             <div className="App-subheader" key={'App-subheader-0'}>
               {subHeaderContent}
-              <div className="BasketIcon" style={{display:(this.defaults.tabs===true?'none':'block')}} key={v4()}  >
-                <Tooltip title={this.state.tab===0 ? ("Open "+this.theme.basketName) : ("Close "+this.theme.basketName)}>
+              <div className="WorkspaceIcon" style={{display:(this.defaults.tabs===true?'none':'block')}} key={v4()}  >
+                <Tooltip title={this.state.tab===0 ? "Open Workspaces" : "Close Workspaces"}>
                 <IconButton color="primary"
-                  aria-label={this.theme.basketName}
+                  aria-label="Workspaces"
                   component="span"
                   onClick={ () => {
                     this.setState({tab: this.state.tab!==0?0:3 })
                   } }
                 >
                   <Badge
-                    badgeContent={this.state.tab===0?Object.keys(this.state.basket).length:0}
-                    className="BasketBadge"
+                    badgeContent={this.state.tab===0?Object.keys(workspaceItems).length:0}
+                    className="WorkspaceBadge"
                   >
                     {
                       this.state.tab===0 ?
-                      (this.theme.basketImage!==null ? <img src={this.theme.basketImage} className="BasketIconImage"/> : <ShoppingCartOutlinedIcon />)
+                      (this.theme.workspaceImage!==null ? <img src={this.theme.workspaceImage} className="WorkspaceIconImage"/> : <WorkspacesOutlinedIcon />)
                       :
-                      (this.theme.closeBasketImage!==null ? <img src={this.theme.closeBasketImage} className="BasketIconImage"/> : <CancelOutlinedIcon />)
+                      (this.theme.closeWorkspaceImage!==null ? <img src={this.theme.closeWorkspaceImage} className="WorkspaceIconImage"/> : <CancelOutlinedIcon />)
                     }
                   </Badge>
                 </IconButton>
@@ -611,7 +770,7 @@ class Popup extends Component {
 
             <Dialog open={this.state.remDialog}>
               <DialogTitle id="alert-dialog-title">
-                {this.state.remKey===null?"Remove all items?":"Remove this item?"}
+                {this.state.remKey===null?"Remove all items from this workspace?":"Remove this item from the workspace?"}
               </DialogTitle>
               <DialogContent>
                 <DialogContentText>

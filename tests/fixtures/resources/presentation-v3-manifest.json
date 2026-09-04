@@ -1,0 +1,15 @@
+{
+  "@context": "http://iiif.io/api/presentation/3/context.json",
+  "id": "{{origin}}/iiif/presentation-v3/manifest.json",
+  "type": "Manifest",
+  "label": {
+    "en": ["Fixture Presentation 3 Manifest"]
+  },
+  "thumbnail": [
+    {
+      "id": "{{origin}}/thumbs/presentation-v3.jpg",
+      "type": "Image",
+      "format": "image/jpeg"
+    }
+  ]
+}

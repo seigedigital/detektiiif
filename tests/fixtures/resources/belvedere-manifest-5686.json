@@ -1,0 +1,56 @@
+{
+  "@context": "http://iiif.io/api/presentation/2/context.json",
+  "@id": "{{origin}}/apis/iiif/presentation/v2/1-objects-5686/manifest",
+  "@type": "sc:Manifest",
+  "label": "Belvedere Fixture Manifest",
+  "thumbnail": [
+    {
+      "@id": "{{origin}}/apis/iiif/image/v2/18966/full/%21100%2C100/0/default.jpg",
+      "service": {
+        "@context": "http://iiif.io/api/image/2/context.json",
+        "@id": "{{origin}}/apis/iiif/image/v2/18966",
+        "profile": "http://iiif.io/api/image/2/level2.json"
+      }
+    }
+  ],
+  "sequences": [
+    {
+      "@context": "http://iiif.io/api/presentation/2/context.json",
+      "@id": "{{origin}}/apis/iiif/presentation/v2/1-objects-5686/sequence/default",
+      "@type": "sc:Sequence",
+      "canvases": [
+        {
+          "@context": "http://iiif.io/api/presentation/2/context.json",
+          "@id": "{{origin}}/apis/iiif/presentation/v2/1-objects-5686/canvas/18966",
+          "@type": "sc:Canvas",
+          "height": 1165,
+          "images": [
+            {
+              "@context": "http://iiif.io/api/presentation/2/context.json",
+              "@id": "{{origin}}/apis/iiif/presentation/v2/1-objects-5686/annotation/18966",
+              "@type": "oa:Annotation",
+              "motivation": "sc:painting",
+              "on": "{{origin}}/apis/iiif/presentation/v2/1-objects-5686/canvas/18966",
+              "resource": {
+                "@context": "http://iiif.io/api/presentation/2/context.json",
+                "@id": "{{origin}}/apis/iiif/image/v2/18966/full/full/0/default.jpg",
+                "@type": "dctypes:Image",
+                "format": "image/jpeg",
+                "height": 1165,
+                "service": {
+                  "@context": "http://iiif.io/api/image/2/context.json",
+                  "@id": "{{origin}}/apis/iiif/image/v2/18966",
+                  "profile": "http://iiif.io/api/image/2/level2.json"
+                },
+                "width": 1772
+              }
+            }
+          ],
+          "label": "Belvedere Fixture Canvas",
+          "width": 1772
+        }
+      ],
+      "label": "default"
+    }
+  ]
+}

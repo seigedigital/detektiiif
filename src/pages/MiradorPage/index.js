@@ -1,87 +1,136 @@
-import React from 'react';
-import { createRoot } from 'react-dom/client';
-import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
+/*global chrome*/
 import Mirador from 'mirador';
+import annotationPlugins from 'mirador-annotation-editor';
+import 'mirador-annotation-editor/dist/index.css';
 
-const container = document.getElementById('Mirador-Container');
-if(container) {
-  const root = createRoot(container);
-  root.render(<HourglassEmptyIcon />);  
-} else {
-  console.log("no container")
+import {
+  DEFAULT_WORKSPACE_ID,
+  getActiveWorkspace,
+  loadWorkspaceState,
+} from '../../shared/workspaces'
+import WorkspaceAnnotationAdapter from './workspaceAnnotationAdapter'
+import './style.css'
+
+let miradorInstance = null
+let renderTimer = null
+
+function getRequestedWorkspaceId() {
+  const params = new URLSearchParams(window.location.search)
+
+  return params.get('workspace')
 }
 
-let miradorInstance = false
-let allManifests = []
+function getWorkspaceForPage(workspaces, activeWorkspaceId) {
+  const requestedWorkspaceId = getRequestedWorkspaceId()
 
-
-chrome.storage.sync.get(['basket'], (result) => {
-
-  // instantiate Mirador
-  let counter = 0
-  let catalog = []
-  let windows = []
-  if(result.basket!==undefined) {
-    for(let key in result.basket) {
-      allManifests.push(result.basket[key].url)
-      catalog.push({manifestId:result.basket[key].url})
-      if(counter<4) {
-        windows.push({manifestId:result.basket[key].url})
-      }
-      counter++
-    }
+  if (requestedWorkspaceId && workspaces[requestedWorkspaceId]) {
+    return workspaces[requestedWorkspaceId]
   }
 
-  let config = {
+  return getActiveWorkspace(workspaces, activeWorkspaceId)
+}
+
+function getManifestItems(workspace) {
+  return Object.values(workspace.items || {})
+    .filter((item) => item && item.url)
+}
+
+function buildMiradorConfig(workspace) {
+  const manifestItems = getManifestItems(workspace)
+  const catalog = manifestItems.map((item) => ({
+    manifestId: item.url,
+    provider: item.label,
+  }))
+  const windows = manifestItems.slice(0, 4).map((item) => ({
+    manifestId: item.url,
+  }))
+  const createAnnotationAdapter = (canvasId) => new WorkspaceAnnotationAdapter(
+    workspace.id,
+    canvasId,
+    'detektIIIF User'
+  )
+
+  window.detektIIIFCreateAnnotationAdapter = createAnnotationAdapter
+
+  return {
     id: 'Mirador-Container',
-    workspace: { isWorkspaceAddVisible: true },
-    windows: windows,
-    catalog: catalog,
+    workspace: {
+      isWorkspaceAddVisible: true,
+    },
+    windows,
+    catalog,
+    annotation: {
+      adapter: createAnnotationAdapter,
+      allowTargetShapesStyling: true,
+      exportLocalStorageAnnotations: false,
+      readonly: false,
+      tagsSuggestions: ['detektIIIF', workspace.name],
+    },
+    window: {
+      allowFullscreen: true,
+      forceDrawAnnotations: true,
+      panels: {
+        annotations: true,
+        attribution: true,
+        canvas: true,
+        info: true,
+        layers: true,
+        search: true,
+      },
+      sideBarPanel: 'annotations',
+    },
     theme: {
       palette: {
         primary: {
           main: '#404040',
         },
       },
-    }
-  }
-
-  miradorInstance = Mirador.viewer(config);
-
-  // try out how it works
-  // setTimeout(() => {
-  //   alert("Test2");
-  //   const manifestUri = 'https://iiif.manducus.net/manifests/0013/6d341fcb7104311515fe3c18a8888b7e975bfb4a/manifest.json';
-  //   var action1 = Mirador.actions.addResource(manifestUri);
-  //   miradorInstance.store.dispatch(action1);
-  // }, 4000); // Adjust the delay as needed
-
-
-
-})
-
-function pushManifest(uri) {
-  if(miradorInstance) {
-    let action1 = Mirador.actions.addResource(uri);
-    miradorInstance.store.dispatch(action1);
+    },
   }
 }
 
-// Listen for changes in chrome.storage.local // sync!!!
-chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName === 'sync') {
-    if(changes.basket!==undefined) {
-      console.log("BASKET CHANGE")
-      console.log(changes.basket)
-      for(let key in changes.basket.newValue) {
-        let url = changes.basket.newValue[key].url
-        console.log(url)
-        if( ! allManifests.includes(url)) {
-          allManifests.push(url);
-          pushManifest(url);
-          console.log("adding "+url);
-        }
-      }
-    }
+function unmountMirador() {
+  if (miradorInstance && typeof miradorInstance.unmount === 'function') {
+    miradorInstance.unmount()
   }
-});
+  miradorInstance = null
+}
+
+async function renderMirador() {
+  const { workspaces, activeWorkspaceId } = await loadWorkspaceState()
+  const workspace = getWorkspaceForPage(workspaces, activeWorkspaceId)
+  const container = document.getElementById('Mirador-Container')
+
+  if (!container) {
+    return
+  }
+
+  unmountMirador()
+  container.innerHTML = ''
+  container.dataset.workspaceId = workspace.id || DEFAULT_WORKSPACE_ID
+  miradorInstance = Mirador.viewer(buildMiradorConfig(workspace), annotationPlugins)
+  window.detektIIIFMirador = miradorInstance
+}
+
+function scheduleMiradorRender() {
+  if (renderTimer) {
+    window.clearTimeout(renderTimer)
+  }
+
+  renderTimer = window.setTimeout(() => {
+    renderTimer = null
+    renderMirador()
+  }, 100)
+}
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'sync') {
+    return
+  }
+
+  if (changes.workspaces || changes.activeWorkspaceId) {
+    scheduleMiradorRender()
+  }
+})
+
+renderMirador()

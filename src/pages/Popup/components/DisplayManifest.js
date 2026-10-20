@@ -49,8 +49,10 @@ export default class DisplayManifest extends Component {
         }
         if(this.props.theme.generalButtons.addToWorkspace) {
           buttons.push(
-            <Tooltip title={"Add manifest to workspace"} describeChild key={`tt-add-${hashedurl}`}>
-              <button onClick={() => this.props.addToWorkspace(this.props.id)} className="ButtonAddToWorkspace" key={`addbutton-${hashedurl}`} >Add to Workspace</button>
+            <Tooltip title={this.props.workspaceReadOnly ? "Workspace is read-only" : "Add manifest to workspace"} describeChild key={`tt-add-${hashedurl}`}>
+              <span>
+                <button disabled={this.props.workspaceReadOnly} onClick={() => this.props.addToWorkspace(this.props.id)} className="ButtonAddToWorkspace" key={`addbutton-${hashedurl}`} >Add to Workspace</button>
+              </span>
             </Tooltip>
           )
         }

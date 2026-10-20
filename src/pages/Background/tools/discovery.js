@@ -8,6 +8,16 @@ const MAX_URLS_PER_RULE = 19
 
 const HTML_DISCOVERY_RULES = [
   {
+    name: 'semantic-link',
+    pattern: /<a\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>[\s\S]*?\b(?:iiif|i3f|manifest)\b[\s\S]*?<\/a>/gi,
+    getUrl: (match) => match[1]
+  },
+  {
+    name: 'html-attribute',
+    pattern: /(?:href|src|data-[\w-]+)\s*=\s*["']([^"']*(?:iiif|i3f|manifest)[^"']*)["']/gi,
+    getUrl: (match) => match[1]
+  },
+  {
     name: 'generic',
     pattern: /https?:\/\/[^"<\s]*(iiif|i3f|manifest)[^"<\s]*/gi,
     getUrl: (match) => match[0],
@@ -15,12 +25,12 @@ const HTML_DISCOVERY_RULES = [
   },
   {
     name: 'encoded-query',
-    pattern: /http[^"<\s]*=(https?:\/\/[^"&<]*(iiif|i3f|manifest|collection)[^"&<]*)/gi,
+    pattern: /http[^"<\s]*=(https?:\/\/[^"&<]*(iiif|i3f|manifest)[^"&<]*)/gi,
     getUrl: (match) => match[1]
   },
   {
     name: 'json',
-    pattern: /(https?:\/\/[^" <>\s]*(iiif|i3f|manifest|collection)[^" <>\s]*\.json)/gi,
+    pattern: /(https?:\/\/[^" <>\s]*(iiif|i3f|manifest)[^" <>\s]*\.json)/gi,
     getUrl: (match) => match[1]
   },
   {
@@ -30,13 +40,13 @@ const HTML_DISCOVERY_RULES = [
   }
 ]
 
-export function extractIIIFUrlsFromHTML(doc) {
+export function extractIIIFUrlsFromHTML(doc, pageUrl) {
   const discovered = []
   const seen = new Set()
   let truncated = false
 
   for (const rule of HTML_DISCOVERY_RULES) {
-    const matches = uniqueMatches(doc, rule)
+    const matches = uniqueMatches(doc, rule, pageUrl)
 
     if (matches.length > MAX_URLS_PER_RULE) {
       truncated = true
@@ -48,6 +58,21 @@ export function extractIIIFUrlsFromHTML(doc) {
   }
 
   return { truncated, urls: discovered }
+}
+
+export function normalizeIIIFLinkCandidates(candidates, pageUrl) {
+  const urls = []
+  const seen = new Set()
+  const values = Array.isArray(candidates) ? candidates : []
+
+  for (const candidate of values.slice(0, MAX_URLS_PER_RULE)) {
+    addUnique(urls, seen, normalizeCandidateUrl(candidate, pageUrl))
+  }
+
+  return {
+    truncated: values.length > MAX_URLS_PER_RULE,
+    urls
+  }
 }
 
 export function extractIIIFUrlsFromPageUrl(pageUrl) {
@@ -67,7 +92,7 @@ export function extractIIIFUrlsFromPageUrl(pageUrl) {
 
 export function extractIIIFUrlsFromJSON(body, sourceUrl) {
   return getInstitutionUrlsFromJSON(body, sourceUrl)
-    .map(normalizeCandidateUrl)
+    .map((url) => normalizeCandidateUrl(url))
     .filter(Boolean)
 }
 
@@ -85,17 +110,34 @@ export function isJsonContentType(contentType) {
     /^application\/[^;]+\+json\b/i.test(contentType || '')
 }
 
-export function shouldFetchBodyAfterHead(url, status) {
-  return status === 405 || shouldInstitutionFetchBodyAfterHead(url, status)
+export function shouldFetchBodyAfterHead(url, status, contentType) {
+  if (shouldInstitutionFetchBodyAfterHead(url, status)) {
+    return true
+  }
+
+  if (!isExplicitIIIFManifestUrl(url)) {
+    return false
+  }
+
+  return status >= 400 || !isJsonContentType(contentType)
 }
 
-function uniqueMatches(doc, rule) {
+function isExplicitIIIFManifestUrl(url) {
+  try {
+    const href = new URL(url).href.toLowerCase()
+    return href.includes('iiif') && href.includes('manifest')
+  } catch {
+    return false
+  }
+}
+
+function uniqueMatches(doc, rule, baseUrl) {
   const urls = []
   const seen = new Set()
   rule.pattern.lastIndex = 0
 
   for (const match of doc.matchAll(rule.pattern)) {
-    const url = normalizeCandidateUrl(rule.getUrl(match))
+    const url = normalizeCandidateUrl(rule.getUrl(match), baseUrl)
 
     if (!url || rule.reject?.(url)) {
       continue
@@ -119,12 +161,23 @@ function addUnique(urls, seen, url) {
   }
 }
 
-function normalizeCandidateUrl(url) {
+function normalizeCandidateUrl(url, baseUrl) {
   if (!url) {
     return null
   }
 
-  return url
+  const normalized = url
     .replace(/&amp;/g, '&')
     .replace(/[.;)]+$/g, '')
+
+  if (!baseUrl) {
+    return normalized
+  }
+
+  try {
+    const resolved = new URL(normalized, baseUrl)
+    return isHttpUrl(resolved.href) ? resolved.href : null
+  } catch {
+    return null
+  }
 }

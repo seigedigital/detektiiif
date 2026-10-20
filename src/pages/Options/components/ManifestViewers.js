@@ -122,8 +122,6 @@ class ManifestViewers extends Component {
       return null
     }
 
-    console.log({render_ManViews_with_state:this.state})
-
     let manifestViewers = []
     for(let key of Object.keys(this.state.openManifestLinks).sort() ) {
       let link = this.state.openManifestLinks[key]

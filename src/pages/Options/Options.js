@@ -17,6 +17,7 @@ import { v5 } from 'uuid'
 import ManifestViewers from './components/ManifestViewers.js'
 import CollectionViewers from './components/CollectionViewers.js'
 import IgnoreDomains from './components/IgnoreDomains.js'
+import WorkspaceStorage from './components/WorkspaceStorage.js'
 
 import packageJson from '../../../package.json'
 
@@ -31,30 +32,37 @@ class Options extends Component {
     this.defaults = new Defaults()
 
     this.upd = this.upd.bind(this)
+    this.handleStorageChange = this.handleStorageChange.bind(this)
     this.data={
       showUrl: true
     }
 
     this.state = {
+      showUrl: true
     }
 
     this.themeVersion = chrome.runtime.getManifest().version
     this.softwareVersion = packageJson.version
 
-    chrome.storage.onChanged.addListener( (changes, namespace) => {
-      for (let [key, { oldValue, newValue }] of Object.entries(changes)) {
+  }
 
-        if(namespace==="local" &&  key==="showUrl") {
-          this.setState({showUrl:newValue})
-        }
-
-        // console.log(
-        //   `Storage key "${key}" in namespace "${namespace}" changed.`,
-        //   `Old value was "${oldValue}", new value is "${newValue}".`
-        // )
+  componentDidMount() {
+    chrome.storage.local.get('showUrl', (data) => {
+      if (typeof data.showUrl === 'boolean') {
+        this.setState({ showUrl: data.showUrl })
       }
-    });
+    })
+    chrome.storage.onChanged.addListener(this.handleStorageChange)
+  }
 
+  componentWillUnmount() {
+    chrome.storage.onChanged.removeListener(this.handleStorageChange)
+  }
+
+  handleStorageChange(changes, namespace) {
+    if (namespace === 'local' && typeof changes.showUrl?.newValue === 'boolean') {
+      this.setState({ showUrl: changes.showUrl.newValue })
+    }
   }
 
   upd() {
@@ -89,6 +97,8 @@ class Options extends Component {
 
         <Divider />
 
+        <WorkspaceStorage />
+
         <Accordion style={{border:'0',boxShadow:'none'}} disableGutters={true} defaultExpanded={true}>
           <AccordionSummary expandIcon={<ExpandMoreIcon />} style={{backgroundColor:'#fff',padding:'0 0',border:'0'}} >
             <h2>Options</h2>
@@ -96,7 +106,7 @@ class Options extends Component {
           <AccordionDetails style={{padding:'0'}}>
           <FormControlLabel
             control={
-              <div className="optionsFloatRight"><Switch name="showUrl" defaultChecked={true} /></div>
+              <div className="optionsFloatRight"><Switch name="showUrl" checked={this.state.showUrl} /></div>
             }
             label="View IIIF Manifest URLs"
             onChange={(e)=>{ this.setState({showUrl:e.target.checked}, this.upd) }}

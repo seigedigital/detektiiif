@@ -1,0 +1,8 @@
+{
+  "@context": "http://iiif.io/api/presentation/3/context.json",
+  "id": "{{origin}}/records/O999/data.json",
+  "type": "Manifest",
+  "label": {
+    "en": ["Semantic Link Fixture Manifest"]
+  }
+}

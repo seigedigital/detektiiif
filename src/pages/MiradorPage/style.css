@@ -12,3 +12,74 @@ body,
 #Mirador-Container {
   overflow: hidden;
 }
+
+#Annotation-Save-Status {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #505050;
+  border-radius: 4px;
+  bottom: 16px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.22);
+  color: #202020;
+  display: flex;
+  font: 14px/1.4 sans-serif;
+  gap: 10px;
+  left: 50%;
+  max-width: min(560px, calc(100% - 32px));
+  padding: 10px 12px;
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: 1500;
+}
+
+#Annotation-Save-Status[hidden] {
+  display: none;
+}
+
+#Annotation-Save-Status[data-status='error'] {
+  border-color: #b3261e;
+  color: #7d1712;
+}
+
+.Annotation-Save-Indicator {
+  animation: annotation-save-spin 0.8s linear infinite;
+  border: 2px solid #bdbdbd;
+  border-radius: 50%;
+  border-top-color: #303030;
+  flex: 0 0 14px;
+  height: 14px;
+  width: 14px;
+}
+
+#Annotation-Save-Status[data-status='saved'] .Annotation-Save-Indicator,
+#Annotation-Save-Status[data-status='error'] .Annotation-Save-Indicator {
+  animation: none;
+  background: currentColor;
+  border: 0;
+  border-radius: 50%;
+  height: 8px;
+  margin: 3px;
+  width: 8px;
+}
+
+#Annotation-Save-Message {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+#Annotation-Save-Retry {
+  background: #303030;
+  border: 0;
+  border-radius: 4px;
+  color: #ffffff;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font: inherit;
+  padding: 6px 10px;
+}
+
+@keyframes annotation-save-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

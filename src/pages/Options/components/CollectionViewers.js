@@ -127,8 +127,6 @@ class CollectionViewers extends Component {
       return null
     }
 
-    console.log({render_ManViews_with_state:this.state})
-
     let collectionViewers = []
     for(let key of Object.keys(this.state.postWorkspaceCollectionTo).sort() ) {
       let link = this.state.postWorkspaceCollectionTo[key]

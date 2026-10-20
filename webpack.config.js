@@ -93,7 +93,6 @@ module.exports = function createWebpackConfig(options = {}) {
           loader: 'html-loader',
           exclude: /node_modules/,
         },
-        { test: /\.(ts|tsx)$/, loader: 'ts-loader', exclude: /node_modules/ },
         {
           test: /\.(js|jsx)$/,
           use: [

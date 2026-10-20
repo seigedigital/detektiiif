@@ -1,7 +1,7 @@
 import React, { Component } from 'react';
 
 import LinkButton from './LinkButton'
-import { v4, v5 } from 'uuid'
+import { v5 } from 'uuid'
 
 import { LazyLoadImage } from 'react-lazy-load-image-component';
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
@@ -40,15 +40,15 @@ export default class DisplayWorkspace extends Component {
         const buttons = []
         if (this.props.theme.generalButtons.removeFromWorkspace !== false) {
           buttons.push(
-            <Tooltip title="Remove manifest" describeChild key={v4()} >{
+            <Tooltip title={this.props.workspaceReadOnly ? "Workspace is read-only" : "Remove manifest"} describeChild key={`remove-${hashedurl}`} ><span>{
               this.props.theme.trashcanImage ?
-                <IconButton color="primary" aria-label="Remove from workspace" component="span" onClick={() => this.props.removeFromWorkspace(this.props.id)} key={`rembutton-${hashedurl}`} >
+                <IconButton disabled={this.props.workspaceReadOnly} color="primary" aria-label="Remove from workspace" component="span" onClick={() => this.props.removeFromWorkspace(this.props.id)} key={`rembutton-${hashedurl}`} >
                   <img src={this.props.theme.trashcanImage}  className="iconSize" />
                 </IconButton>
                 :
-                <button onClick={() => this.props.removeFromWorkspace(this.props.id)} className="ButtonRemoveFromWorkspace" key={`rembutton-${hashedurl}`} >
+                <button disabled={this.props.workspaceReadOnly} onClick={() => this.props.removeFromWorkspace(this.props.id)} className="ButtonRemoveFromWorkspace" key={`rembutton-${hashedurl}`} >
                   Remove from workspace
-                </button>}
+                </button>}</span>
             </Tooltip>
           )
         }
